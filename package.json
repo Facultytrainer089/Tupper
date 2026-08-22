@@ -1,5 +1,13 @@
 {
+  "name": "tupperware-catalog",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "netlify dev --offline --no-open --port 8888"
+  },
   "dependencies": {
-    "pg": "^8.16.3"
+    "express": "^5.1.0",
+    "pg": "^8.16.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1"
   }
 }

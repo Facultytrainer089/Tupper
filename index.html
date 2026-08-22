@@ -950,7 +950,7 @@
         };
 
         try {
-            const response = await fetch("https://YOUR-BACKEND-URL.onrender.com/api/contacts", {
+            const response = await fetch("/.netlify/functions/contact", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"

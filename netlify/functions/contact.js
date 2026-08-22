@@ -1,9 +1,13 @@
+require("dotenv").config();
+
 const { Pool } = require("pg");
 
 // Neon PostgreSQL connection
 // DATABASE_URL is added in Netlify Environment Variables
+const databaseUrl = process.env.DATABASE_URL;
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: databaseUrl,
     ssl: {
         rejectUnauthorized: false
     }
@@ -11,6 +15,19 @@ const pool = new Pool({
 
 // Netlify Function
 exports.handler = async (event) => {
+
+    if (!databaseUrl) {
+        return {
+            statusCode: 500,
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                success: false,
+                message: "Database connection is not configured"
+            })
+        };
+    }
 
     // Allow only POST requests
     if (event.httpMethod !== "POST") {
