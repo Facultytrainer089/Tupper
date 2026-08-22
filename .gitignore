@@ -1,8 +1,1 @@
-# Local Netlify folder
-.netlify
 
-# Local dependencies and secrets
-node_modules/
-.env
-Connection_string.txt
-String-Connection.docx
