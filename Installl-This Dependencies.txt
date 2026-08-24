@@ -2,3 +2,10 @@
 npm install
 npm install -g netlify-cli
 npm run dev
+
+
+https://github.com/Facultytrainer089/Tupper
+
+git remote add origin https://github.com/Facultytrainer089/Tupper
+
+https://shoponline-hema.netlify.app/
