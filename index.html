@@ -41,6 +41,35 @@
             color: #e91e63 !important;
         }
 
+        .cart-button {
+            position: relative;
+            border: 1px solid #e91e63;
+            color: #e91e63;
+            background: white;
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-weight: 700;
+        }
+
+        .cart-button:hover {
+            background: #e91e63;
+            color: white;
+        }
+
+        .cart-count {
+            position: absolute;
+            top: -8px;
+            right: -4px;
+            min-width: 22px;
+            height: 22px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: #222;
+            color: white;
+            font-size: 12px;
+            text-align: center;
+        }
+
         /* Hero */
         .hero {
             background: linear-gradient(135deg, #ffe4ec, #fff);
@@ -89,6 +118,24 @@
 
         .section-title p {
             color: #777;
+        }
+
+        .product-tools {
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 28px;
+        }
+
+        .product-tools .form-control,
+        .product-tools .form-select {
+            max-width: 280px;
+        }
+
+        .add-to-cart {
+            width: 100%;
+            margin-top: 10px;
         }
 
         /* Product Card */
@@ -239,6 +286,88 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.08);
         }
 
+        .cart-drawer {
+            position: fixed;
+            inset: 0 0 0 auto;
+            z-index: 1060;
+            width: min(420px, 100%);
+            padding: 28px;
+            overflow-y: auto;
+            background: white;
+            box-shadow: -8px 0 30px rgba(0,0,0,0.18);
+            transform: translateX(100%);
+            transition: transform 220ms ease;
+        }
+
+        .cart-drawer.is-open {
+            transform: translateX(0);
+        }
+
+        .cart-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1059;
+            display: none;
+            background: rgba(0,0,0,0.45);
+        }
+
+        .cart-backdrop.is-open {
+            display: block;
+        }
+
+        .cart-item {
+            display: grid;
+            grid-template-columns: 64px 1fr auto;
+            gap: 12px;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .cart-item img {
+            width: 64px;
+            height: 64px;
+            object-fit: contain;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .quantity-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .quantity-controls button {
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            border: 1px solid #ddd;
+            border-radius: 50%;
+            background: white;
+        }
+
+        .cart-total {
+            display: flex;
+            justify-content: space-between;
+            margin: 24px 0 16px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        @media (max-width: 576px) {
+            .product-tools {
+                display: grid;
+            }
+
+            .product-tools .form-control,
+            .product-tools .form-select {
+                max-width: none;
+            }
+
+        }
+
         /* Footer */
         footer {
             background: #222;
@@ -353,6 +482,14 @@
 
                 <li class="nav-item">
                     <a class="nav-link" href="#contact">Contact</a>
+                </li>
+
+                <li class="nav-item ms-lg-3 mt-2 mt-lg-0">
+                    <button class="cart-button" id="openCart" type="button" aria-label="Open shopping cart">
+                        <i class="bi bi-bag"></i>
+                        Cart
+                        <span class="cart-count" id="cartCount">0</span>
+                    </button>
                 </li>
 
             </ul>
@@ -503,6 +640,17 @@
 
         </div>
 
+        <div class="product-tools">
+            <input class="form-control" id="productSearch" type="search" placeholder="Search products" aria-label="Search products">
+            <select class="form-select" id="categoryFilter" aria-label="Filter products by category">
+                <option value="all">All categories</option>
+                <option value="storage">Storage</option>
+                <option value="kitchen">Kitchen</option>
+                <option value="water">Water bottles</option>
+                <option value="lunch">Lunch boxes</option>
+            </select>
+        </div>
+
 
         <div class="row g-4">
 
@@ -520,7 +668,8 @@
                         <h5>Eco Water Bottle</h5>
 
                         <p>
-                            Stylish reusable bottle for everyday use.
+                            A durable, reusable bottle with a practical design for water,
+                            juice, and everyday hydration at home, work, or on the go.
                         </p>
 
                         <div class="price">₹599</div>
@@ -551,7 +700,8 @@
                         <h5>Food Storage Container</h5>
 
                         <p>
-                            Keep your food fresh and organized.
+                            Keep cooked meals, snacks, and ingredients fresh and organized
+                            with a dependable container that fits neatly in your kitchen.
                         </p>
 
                         <div class="price">₹799</div>
@@ -582,7 +732,8 @@
                         <h5>Kitchen Container</h5>
 
                         <p>
-                            Perfect for storing kitchen ingredients.
+                            Store grains, spices, pulses, and other kitchen ingredients
+                            neatly while making your pantry easier to organize and use.
                         </p>
 
                         <div class="price">₹699</div>
@@ -613,7 +764,8 @@
                         <h5>Lunch Box</h5>
 
                         <p>
-                            Convenient lunch storage for everyday use.
+                            Pack homemade meals, snacks, and sides in one convenient box
+                            designed for office lunches, school, travel, and daily use.
                         </p>
 
                         <div class="price">₹899</div>
@@ -644,7 +796,8 @@
                         <h5>Storage Box</h5>
 
                         <p>
-                            Organize your home with smart storage.
+                            A versatile storage solution for groceries, accessories, and
+                            household items that helps keep cupboards and rooms clutter-free.
                         </p>
 
                         <div class="price">₹499</div>
@@ -675,7 +828,8 @@
                         <h5>Kitchen Set</h5>
 
                         <p>
-                            Useful containers for your kitchen.
+                            A practical collection of useful containers for meal prep,
+                            ingredient storage, leftovers, and everyday kitchen organization.
                         </p>
 
                         <div class="price">₹1,299</div>
@@ -706,7 +860,8 @@
                         <h5>Food Bowl Set</h5>
 
                         <p>
-                            Convenient bowls for everyday meals.
+                            A handy bowl set for serving, storing, and preparing everyday
+                            meals, snacks, salads, and leftovers with less kitchen clutter.
                         </p>
 
                         <div class="price">₹899</div>
@@ -737,7 +892,8 @@
                         <h5>Kitchen Accessories</h5>
 
                         <p>
-                            Helpful accessories for your kitchen.
+                            Useful kitchen accessories that make preparing, storing, and
+                            organizing food simpler, cleaner, and more convenient every day.
                         </p>
 
                         <div class="price">₹599</div>
@@ -998,6 +1154,24 @@
 
 </a>
 
+<div class="cart-backdrop" id="cartBackdrop"></div>
+<aside class="cart-drawer" id="cartDrawer" aria-label="Shopping cart" aria-hidden="true">
+    <div class="d-flex justify-content-between align-items-center">
+        <h2 class="h4 mb-0">Your cart</h2>
+        <button class="btn-close" id="closeCart" type="button" aria-label="Close shopping cart"></button>
+    </div>
+    <div id="cartItems" class="mt-3">
+        <p class="text-muted">Your cart is empty.</p>
+    </div>
+    <div class="cart-total">
+        <span>Subtotal</span>
+        <span id="cartTotal">₹0</span>
+    </div>
+    <button class="btn btn-main w-100" id="checkoutButton" type="button" disabled>
+        Checkout
+    </button>
+</aside>
+
 <div class="zoom-modal"
      id="imageZoomModal"
      role="dialog"
@@ -1015,6 +1189,132 @@
 
 
 <script>
+    const cartDrawer = document.getElementById("cartDrawer");
+    const cartBackdrop = document.getElementById("cartBackdrop");
+    const cartItems = document.getElementById("cartItems");
+    const cartCount = document.getElementById("cartCount");
+    const cartTotal = document.getElementById("cartTotal");
+    const checkoutButton = document.getElementById("checkoutButton");
+    let cart = JSON.parse(localStorage.getItem("tupperwareCart") || "[]");
+
+    function getProductData(card) {
+        const image = card.querySelector("img");
+        const name = card.querySelector("h5").textContent.trim();
+        const price = Number(card.querySelector(".price").textContent.replace(/[^0-9]/g, ""));
+        return {
+            id: name.toLowerCase().replace(/\s+/g, "-"),
+            name,
+            price,
+            image: image.src,
+            category: card.dataset.category || "all"
+        };
+    }
+
+    function updateCart() {
+        const itemCount = cart.reduce((total, item) => total + item.quantity, 0);
+        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        cartCount.textContent = itemCount;
+        cartTotal.textContent = `₹${total.toLocaleString("en-IN")}`;
+        checkoutButton.disabled = cart.length === 0;
+        cartItems.innerHTML = cart.length ? cart.map((item) => `
+            <div class="cart-item">
+                <img src="${item.image}" alt="${item.name}">
+                <div>
+                    <strong>${item.name}</strong>
+                    <div>₹${item.price.toLocaleString("en-IN")}</div>
+                    <div class="quantity-controls">
+                        <button type="button" data-action="decrease" data-id="${item.id}" aria-label="Decrease ${item.name} quantity">−</button>
+                        <span>${item.quantity}</span>
+                        <button type="button" data-action="increase" data-id="${item.id}" aria-label="Increase ${item.name} quantity">+</button>
+                    </div>
+                </div>
+                <button class="btn-close" type="button" data-action="remove" data-id="${item.id}" aria-label="Remove ${item.name}"></button>
+            </div>
+        `).join("") : '<p class="text-muted">Your cart is empty.</p>';
+        localStorage.setItem("tupperwareCart", JSON.stringify(cart));
+    }
+
+    function setCartOpen(isOpen) {
+        cartDrawer.classList.toggle("is-open", isOpen);
+        cartBackdrop.classList.toggle("is-open", isOpen);
+        cartDrawer.setAttribute("aria-hidden", String(!isOpen));
+    }
+
+    function bindProductCard(card) {
+        const product = getProductData(card);
+        const action = card.querySelector(".product-info a");
+        action.textContent = "Add to cart";
+        action.classList.add("add-to-cart");
+        action.href = "#";
+        action.addEventListener("click", function (event) {
+            event.preventDefault();
+            const existing = cart.find((item) => item.id === product.id);
+            if (existing) {
+                existing.quantity += 1;
+            } else {
+                cart.push({ ...product, quantity: 1 });
+            }
+            updateCart();
+            setCartOpen(true);
+        });
+    }
+
+    document.querySelectorAll(".product-card").forEach(bindProductCard);
+
+    document.getElementById("openCart").addEventListener("click", () => setCartOpen(true));
+    document.getElementById("closeCart").addEventListener("click", () => setCartOpen(false));
+    cartBackdrop.addEventListener("click", () => setCartOpen(false));
+    cartItems.addEventListener("click", function (event) {
+        const control = event.target.closest("[data-action]");
+        if (!control) return;
+        const item = cart.find((entry) => entry.id === control.dataset.id);
+        if (!item) return;
+        if (control.dataset.action === "increase") item.quantity += 1;
+        if (control.dataset.action === "decrease") item.quantity -= 1;
+        if (control.dataset.action === "remove" || item.quantity < 1) {
+            cart = cart.filter((entry) => entry.id !== item.id);
+        }
+        updateCart();
+    });
+
+    checkoutButton.addEventListener("click", function () {
+        const order = cart.map((item) => `${item.name} x${item.quantity}`).join(", ");
+        const productField = document.getElementById("product");
+        if (!Array.from(productField.options).some((option) => option.value === cart[0].name)) {
+            productField.add(new Option(cart[0].name, cart[0].name));
+        }
+        productField.value = cart[0].name;
+        document.getElementById("message").value = `Order request: ${order}. Total: ${cartTotal.textContent}`;
+        setCartOpen(false);
+        document.getElementById("contact").scrollIntoView({ behavior: "smooth" });
+    });
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") setCartOpen(false);
+    });
+
+    const productSearch = document.getElementById("productSearch");
+    const categoryFilter = document.getElementById("categoryFilter");
+    function filterProducts() {
+        const search = productSearch.value.toLowerCase().trim();
+        const category = categoryFilter.value;
+        document.querySelectorAll(".product-card").forEach(function (card) {
+            const product = getProductData(card);
+            const text = card.textContent.toLowerCase();
+            const matchesSearch = !search || text.includes(search);
+            const matchesCategory = category === "all" ||
+                (category === "water" && product.name.toLowerCase().includes("bottle")) ||
+                (category === "lunch" && product.name.toLowerCase().includes("lunch")) ||
+                (category === "storage" && /container|storage|bowl/.test(product.name.toLowerCase())) ||
+                (category === "kitchen" && /kitchen|accessories/.test(product.name.toLowerCase()));
+            card.closest("[class*='col-']").style.display = matchesSearch && matchesCategory ? "flex" : "none";
+        });
+    }
+    productSearch.addEventListener("input", filterProducts);
+    categoryFilter.addEventListener("change", filterProducts);
+
+    updateCart();
+
     const imageZoomModal = document.getElementById("imageZoomModal");
     const zoomedImage = document.getElementById("zoomedImage");
     const zoomCloseButton = imageZoomModal.querySelector(".zoom-close");
