@@ -26,18 +26,7 @@
         }
 
         .navbar-brand {
-            font-size: 28px;
-            font-weight: bold;
-            color: #e91e63 !important;
-        }
 
-        .nav-link {
-            font-weight: 600;
-            margin-left: 15px;
-            color: #333 !important;
-        }
-
-        .nav-link:hover {
             color: #e91e63 !important;
         }
 
@@ -120,17 +109,9 @@
             color: #777;
         }
 
-        .product-tools {
-            display: flex;
-            gap: 12px;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 28px;
-        }
-
-        .product-tools .form-control,
-        .product-tools .form-select {
+        .category-filter {
             max-width: 280px;
+            margin: 0 0 28px auto;
         }
 
         .add-to-cart {
@@ -354,18 +335,6 @@
             margin: 24px 0 16px;
             font-size: 20px;
             font-weight: 700;
-        }
-
-        @media (max-width: 576px) {
-            .product-tools {
-                display: grid;
-            }
-
-            .product-tools .form-control,
-            .product-tools .form-select {
-                max-width: none;
-            }
-
         }
 
         /* Footer */
@@ -640,17 +609,13 @@
 
         </div>
 
-        <div class="product-tools">
-            <input class="form-control" id="productSearch" type="search" placeholder="Search products" aria-label="Search products">
-            <select class="form-select" id="categoryFilter" aria-label="Filter products by category">
-                <option value="all">All categories</option>
-                <option value="storage">Storage</option>
-                <option value="kitchen">Kitchen</option>
-                <option value="water">Water bottles</option>
-                <option value="lunch">Lunch boxes</option>
-            </select>
-        </div>
-
+        <select class="form-select category-filter" id="categoryFilter" aria-label="Filter products by category">
+            <option value="all">All categories</option>
+            <option value="storage">Storage</option>
+            <option value="kitchen">Kitchen</option>
+            <option value="water">Water bottles</option>
+            <option value="lunch">Lunch boxes</option>
+        </select>
 
         <div class="row g-4">
 
@@ -658,7 +623,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="water">
 
                     <img src="https://images.unsplash.com/photo-1602143407151-7111542de6e8?auto=format&fit=crop&w=600&q=80"
                          alt="Water Bottle">
@@ -690,7 +655,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="storage">
 
                     <img src="./Images/food.webp"
                          alt="Food Container">
@@ -722,7 +687,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="kitchen">
 
                     <img src="./Images/Kitchen.webp"
                          alt="Kitchen Container">
@@ -754,7 +719,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="lunch">
 
                     <img src="./Images/LunchBox.webp"
                          alt="Lunch Box">
@@ -786,7 +751,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="storage">
 
                     <img src="./Images/storage.jpg"
                          alt="Storage Box">
@@ -818,7 +783,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="kitchen">
 
                     <img src="https://images.unsplash.com/photo-1610701596007-11502861dcfa?auto=format&fit=crop&w=600&q=80"
                          alt="Kitchen Set">
@@ -850,7 +815,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="storage">
 
                     <img src="./Images/food.webp"
                          alt="Food Bowl">
@@ -882,7 +847,7 @@
 
             <div class="col-12 col-sm-6 col-lg-3">
 
-                <div class="product-card">
+                <div class="product-card" data-category="kitchen">
 
                     <img src="https://images.unsplash.com/photo-1601050690117-94f5f6fa8bd7?auto=format&fit=crop&w=600&q=80"
                          alt="Kitchen Accessories">
@@ -1293,25 +1258,13 @@
         if (event.key === "Escape") setCartOpen(false);
     });
 
-    const productSearch = document.getElementById("productSearch");
     const categoryFilter = document.getElementById("categoryFilter");
-    function filterProducts() {
-        const search = productSearch.value.toLowerCase().trim();
-        const category = categoryFilter.value;
+    categoryFilter.addEventListener("change", function () {
         document.querySelectorAll(".product-card").forEach(function (card) {
-            const product = getProductData(card);
-            const text = card.textContent.toLowerCase();
-            const matchesSearch = !search || text.includes(search);
-            const matchesCategory = category === "all" ||
-                (category === "water" && product.name.toLowerCase().includes("bottle")) ||
-                (category === "lunch" && product.name.toLowerCase().includes("lunch")) ||
-                (category === "storage" && /container|storage|bowl/.test(product.name.toLowerCase())) ||
-                (category === "kitchen" && /kitchen|accessories/.test(product.name.toLowerCase()));
-            card.closest("[class*='col-']").style.display = matchesSearch && matchesCategory ? "flex" : "none";
+            const matchesCategory = categoryFilter.value === "all" || card.dataset.category === categoryFilter.value;
+            card.closest("[class*='col-']").style.display = matchesCategory ? "flex" : "none";
         });
-    }
-    productSearch.addEventListener("input", filterProducts);
-    categoryFilter.addEventListener("change", filterProducts);
+    });
 
     updateCart();
 
