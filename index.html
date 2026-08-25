@@ -110,9 +110,76 @@
         .product-card img {
             width: 100%;
             height: 230px;
+            display: block;
             object-fit: contain;
             padding: 15px;
             background: #fff;
+            cursor: zoom-in;
+        }
+
+        #products .row > [class*="col-"] {
+            display: flex;
+        }
+
+        .zoom-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 1055;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(0, 0, 0, 0.85);
+        }
+
+        .zoom-modal.is-open {
+            display: flex;
+            animation: zoomBackdropIn 220ms ease-out both;
+        }
+
+        .zoom-modal img {
+            width: min(90vw, 900px);
+            height: min(80vh, 700px);
+            display: block;
+            object-fit: contain;
+            border-radius: 8px;
+            background: white;
+            animation: zoomImageIn 320ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+
+        @keyframes zoomBackdropIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes zoomImageIn {
+            from {
+                opacity: 0;
+                transform: scale(0.78);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .zoom-close {
+            position: absolute;
+            top: 16px;
+            right: 22px;
+            border: 0;
+            background: transparent;
+            color: white;
+            font-size: 38px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .zoom-modal.is-open,
+            .zoom-modal img {
+                animation: none;
+            }
         }
 
         .product-info {
@@ -931,6 +998,15 @@
 
 </a>
 
+<div class="zoom-modal"
+     id="imageZoomModal"
+     role="dialog"
+     aria-modal="true"
+     aria-label="Zoomed image">
+    <button class="zoom-close" type="button" aria-label="Close zoomed image">&times;</button>
+    <img id="zoomedImage" src="" alt="">
+</div>
+
 
 <!-- Bootstrap JS -->
 
@@ -939,6 +1015,37 @@
 
 
 <script>
+    const imageZoomModal = document.getElementById("imageZoomModal");
+    const zoomedImage = document.getElementById("zoomedImage");
+    const zoomCloseButton = imageZoomModal.querySelector(".zoom-close");
+
+    document.querySelectorAll("img").forEach(function (image) {
+        image.addEventListener("click", function (event) {
+            event.preventDefault();
+            zoomedImage.src = image.currentSrc || image.src;
+            zoomedImage.alt = image.alt;
+            imageZoomModal.classList.add("is-open");
+            zoomCloseButton.focus();
+        });
+    });
+
+    function closeImageZoom() {
+        imageZoomModal.classList.remove("is-open");
+        zoomedImage.src = "";
+    }
+
+    zoomCloseButton.addEventListener("click", closeImageZoom);
+    imageZoomModal.addEventListener("click", function (event) {
+        if (event.target === imageZoomModal) {
+            closeImageZoom();
+        }
+    });
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && imageZoomModal.classList.contains("is-open")) {
+            closeImageZoom();
+        }
+    });
+
     const contactForm = document.getElementById("contactForm");
 
     contactForm.addEventListener("submit", async function (event) {
