@@ -1,0 +1,2890 @@
+(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const r of document.querySelectorAll('link[rel="modulepreload"]'))n(r);new MutationObserver(r=>{for(const i of r)if(i.type==="childList")for(const s of i.addedNodes)s.tagName==="LINK"&&s.rel==="modulepreload"&&n(s)}).observe(document,{childList:!0,subtree:!0});function t(r){const i={};return r.integrity&&(i.integrity=r.integrity),r.referrerPolicy&&(i.referrerPolicy=r.referrerPolicy),r.crossOrigin==="use-credentials"?i.credentials="include":r.crossOrigin==="anonymous"?i.credentials="omit":i.credentials="same-origin",i}function n(r){if(r.ep)return;r.ep=!0;const i=t(r);fetch(r.href,i)}})();const l=8;function _(o){return o!=null&&typeof o=="object"&&o.__oaiDilFrame===!0&&o.kind==="createRunner"&&o.protocolVersion===l&&typeof o.compiledDil=="string"&&typeof o.runnerId=="string"}function f(o){return o!=null&&typeof o=="object"&&o.__oaiDilFrame===!0&&o.kind==="disposeRunner"&&o.protocolVersion===l&&typeof o.runnerId=="string"}const d="__dil_initialize",g=1e4;class v{activeRunnerId=null;disposed=!1;createChannel;createWorker;healthChecks=new Map;healthCheckTimeoutMs;isVisible;nextMessageId=0;requestTimeoutMs;sessions=new Map;unattributedRestarts=0;worker=null;workerControlPort=null;constructor(e){this.createChannel=e.createChannel??(()=>new MessageChannel),this.createWorker=e.createWorker,this.healthCheckTimeoutMs=e.healthCheckTimeoutMs??500,this.requestTimeoutMs=e.requestTimeoutMs??2e3,this.isVisible=e.isVisible??(()=>typeof document>"u"||!document.hidden),this.startWorker()}createRunner(e,t){if(this.disposed){t.close();return}this.disposeRunner(e.runnerId);const n={hasSuccessfulSnapshot:!1,handleHostMessage:r=>{this.receiveHostMessage(n,r.data)},handleWorkerMessage:r=>{this.receiveWorkerMessage(n,r.data)},hostPort:t,lastSnapshotVersion:0,message:{...e,...e.statePersistence?{statePersistence:{...e.statePersistence}}:{}},pendingRequests:new Map,pendingWorkerCommands:new Map,quarantined:!1,restoringCommands:new Set,transports:new Set,workerPort:null};if(this.sessions.set(e.runnerId,n),t.addEventListener("message",n.handleHostMessage),t.start(),!this.worker&&!this.startWorker()){this.failSession(n,"worker_start_error");return}this.startSession(n)}disposeRunner(e){const t=this.sessions.get(e);t&&(this.sessions.delete(e),this.cancelHealthChecks(t),this.clearRequests(t,!1),this.closeWorkerPort(t),t.hostPort.removeEventListener("message",t.handleHostMessage),t.hostPort.close(),this.notifyWorkerToDispose(e),this.activeRunnerId===e&&(this.activeRunnerId=null))}dispose(){if(!this.disposed){this.disposed=!0;for(const e of[...this.sessions.keys()])this.disposeRunner(e);this.stopWorker()}}startWorker(){if(this.disposed)return!1;let e,t;try{return e=this.createWorker(),t=this.createChannel(),t.port1.addEventListener("message",this.receiveWorkerControl),t.port1.start(),e.postMessage({__oaiDilWorker:!0,kind:"initializeControl",protocolVersion:l},[t.port2]),this.worker=e,this.workerControlPort=t.port1,!0}catch{return t?.port1.removeEventListener("message",this.receiveWorkerControl),t?.port1.close(),t?.port2.close(),e?.terminate(),this.worker=null,this.workerControlPort=null,!1}}stopWorker(){for(const n of this.healthChecks.values())globalThis.clearTimeout(n.timeout);this.healthChecks.clear(),this.activeRunnerId=null;const e=this.workerControlPort;this.workerControlPort=null,e?.removeEventListener("message",this.receiveWorkerControl),e?.close();const t=this.worker;this.worker=null,t?.terminate()}startSession(e){const t=this.workerControlPort;if(!t||e.quarantined||this.disposed)return;this.closeWorkerPort(e);const n=this.createChannel();e.workerPort=n.port1,n.port1.addEventListener("message",e.handleWorkerMessage),n.port1.start(),this.trackRequest(e,d,"initialize");try{t.postMessage(e.message,[n.port2]);for(const r of e.transports){const i=`__dil_restore_${this.nextMessageId++}`;e.restoringCommands.add(i),n.port1.postMessage({__oaiDilMessage:!0,command:"registerMessengerTransport",data:{channelId:r},id:i,kind:"command"})}}catch{this.failSession(e,"worker_start_error")}}receiveHostMessage(e,t){if(!this.isLiveSession(e)||!c(t))return;if(t.kind==="response"){if(typeof t.id!="string")return;const r=e.pendingWorkerCommands.get(t.id);if(!r)return;e.pendingWorkerCommands.delete(t.id),e.workerPort?.postMessage({...t,id:r});return}if(t.kind!=="command"||typeof t.id!="string")return;const n=this.rememberHostCommand(e,t);if(e.quarantined){if(t.command==="setCompiledDil"&&n){if(e.quarantined=!1,this.unattributedRestarts=0,this.replyToHost(e,t.id),!this.worker&&!this.startWorker()){this.failSession(e,"worker_start_error");return}this.startSession(e)}else this.replyToHost(e,t.id);return}if(!e.workerPort){this.replyToHost(e,t.id);return}this.trackRequest(e,t.id,t.command??"unknown"),e.workerPort.postMessage({...t,...t.command==="trigger"?{acknowledge:!0}:{}})}rememberHostCommand(e,t){if(!a(t.data))return!1;switch(t.command){case"setCompiledDil":{if(typeof t.data.compiledDil!="string")return!1;const n=e.message.compiledDil!==t.data.compiledDil;return e.message.compiledDil=t.data.compiledDil,n}case"setData":return e.message.data=t.data.data,!1;case"setStateSnapshot":if(e.message.statePersistence)if(t.data.snapshot===void 0)delete e.message.statePersistence.snapshot;else{const n=p(t.data.snapshot);n&&(e.message.statePersistence.snapshot=n)}return!1;case"registerMessengerTransport":return typeof t.data.channelId=="string"&&e.transports.add(t.data.channelId),!1;case"unregisterMessengerTransport":return typeof t.data.channelId=="string"&&e.transports.delete(t.data.channelId),!1;default:return!1}}receiveWorkerMessage(e,t){if(!(!this.isLiveSession(e)||!c(t))){if(t.kind==="ack"){const n=typeof t.id=="string"?e.pendingRequests.get(t.id):void 0;n?.command==="trigger"&&(n.acknowledged=!0);return}if(t.kind==="response"){if(typeof t.id!="string"||e.restoringCommands.delete(t.id))return;this.clearRequest(e,t.id)}if(t.kind==="event"&&t.event==="snapshot"&&(this.clearRequest(e,d),a(t.data)&&typeof t.data.version=="number"&&(t.data.error==null&&(e.hasSuccessfulSnapshot=!0),e.lastSnapshotVersion=Math.max(e.lastSnapshotVersion,t.data.version))),t.kind==="command"&&typeof t.id=="string"){this.rememberPersistedState(e,t);const n=`worker_${this.nextMessageId}`;this.nextMessageId+=1,e.pendingWorkerCommands.set(n,t.id),e.hostPort.postMessage({...t,id:n});return}e.hostPort.postMessage(t)}}rememberPersistedState(e,t){const n=e.message.statePersistence;if(!n||t.command!=="invokeGlobal"||!a(t.data)||t.data.id!==n.persistState.__oaiDilGlobalFunction||!Array.isArray(t.data.args))return;const r=p(t.data.args[0]);r&&(n.snapshot=r)}trackRequest(e,t,n){const r=e.pendingRequests.get(t)?.acknowledged??!1;this.clearRequest(e,t);const i=n==="initialize"?g:this.requestTimeoutMs,s=globalThis.setTimeout(()=>{this.requestTimedOut(e,t)},i);e.pendingRequests.set(t,{acknowledged:r,command:n,timeout:s})}clearRequest(e,t){const n=e.pendingRequests.get(t);n&&(globalThis.clearTimeout(n.timeout),e.pendingRequests.delete(t),this.cancelHealthChecks(e,t))}clearRequests(e,t){for(const[n,r]of e.pendingRequests)globalThis.clearTimeout(r.timeout),t&&n!==d&&this.replyToHost(e,n);e.pendingRequests.clear(),e.pendingWorkerCommands.clear(),e.restoringCommands.clear()}requestTimedOut(e,t){if(!this.isLiveSession(e)||e.quarantined||!e.pendingRequests.has(t))return;if(!this.isVisible()){const s=e.pendingRequests.get(t)?.command;s&&this.trackRequest(e,t,s);return}const n=this.workerControlPort;if(!n){this.canRestoreCallback(e,t)||this.quarantineSession(e),this.restartWorker();return}const r=`health_${this.nextMessageId}`;this.nextMessageId+=1;const i=globalThis.setTimeout(()=>{this.healthCheckTimedOut(r)},this.healthCheckTimeoutMs);this.healthChecks.set(r,{requestId:t,session:e,timeout:i});try{n.postMessage({__oaiDilWorker:!0,kind:"healthCheck",requestId:r})}catch{this.healthCheckTimedOut(r)}}receiveWorkerControl=e=>{if(y(e.data))switch(e.data.kind){case"executionStarted":this.activeRunnerId=e.data.runnerId;break;case"executionFinished":this.activeRunnerId===e.data.runnerId&&(this.activeRunnerId=null);break;case"healthy":{const t=this.healthChecks.get(e.data.requestId);if(!t)return;globalThis.clearTimeout(t.timeout),this.healthChecks.delete(e.data.requestId);const n=t.session.pendingRequests.get(t.requestId);this.isLiveSession(t.session)&&n&&(n.acknowledged?this.trackRequest(t.session,t.requestId,n.command):this.canRestoreCallback(t.session,t.requestId)?this.restartSession(t.session):this.quarantineSession(t.session));break}}};healthCheckTimedOut(e){const t=this.healthChecks.get(e);if(!t||(this.healthChecks.delete(e),globalThis.clearTimeout(t.timeout),!this.isLiveSession(t.session)))return;const n=this.activeRunnerId?this.sessions.get(this.activeRunnerId):void 0;n?(this.unattributedRestarts=0,this.canRestoreCallback(n,n===t.session?t.requestId:void 0)||this.quarantineSession(n)):this.canRestoreCallback(t.session,t.requestId)?this.unattributedRestarts=0:this.unattributedRestarts>0?this.quarantineSession(t.session):this.unattributedRestarts+=1,this.restartWorker()}canRestoreCallback(e,t){return e.hasSuccessfulSnapshot?t!=null?e.pendingRequests.get(t)?.command==="trigger":[...e.pendingRequests.values()].some(n=>n.command==="trigger"):!1}restartSession(e){this.cancelHealthChecks(e),this.clearRequests(e,!0),this.closeWorkerPort(e),this.notifyWorkerToDispose(e.message.runnerId),this.startSession(e)}restartWorker(){this.stopWorker();const e=[...this.sessions.values()].filter(t=>!t.quarantined);for(const t of e)this.clearRequests(t,!0),this.closeWorkerPort(t);if(!this.startWorker()){for(const t of e)this.failSession(t,"worker_start_error");return}for(const t of e)this.startSession(t)}quarantineSession(e){!this.isLiveSession(e)||e.quarantined||(e.quarantined=!0,this.cancelHealthChecks(e),this.clearRequests(e,!0),this.closeWorkerPort(e),this.notifyWorkerToDispose(e.message.runnerId),this.failSession(e,"worker_timeout"))}failSession(e,t){e.quarantined=!0,this.clearRequests(e,!0),this.closeWorkerPort(e),e.lastSnapshotVersion+=1,e.hostPort.postMessage({__oaiDilMessage:!0,data:{error:{message:t==="worker_timeout"?"The DIL runner request timed out":"The DIL runner worker could not be started",name:"Error"},tree:null,version:e.lastSnapshotVersion},event:"snapshot",kind:"event"}),e.hostPort.postMessage({__oaiDilMessage:!0,data:{kind:"failure",stage:t},event:"lifecycle",kind:"event"})}cancelHealthChecks(e,t){for(const[n,r]of this.healthChecks)r.session===e&&(t==null||r.requestId===t)&&(globalThis.clearTimeout(r.timeout),this.healthChecks.delete(n))}closeWorkerPort(e){e.workerPort&&(e.workerPort.removeEventListener("message",e.handleWorkerMessage),e.workerPort.close(),e.workerPort=null,e.pendingWorkerCommands.clear(),e.restoringCommands.clear())}notifyWorkerToDispose(e){try{this.workerControlPort?.postMessage({__oaiDilFrame:!0,kind:"disposeRunner",protocolVersion:l,runnerId:e})}catch{}}replyToHost(e,t){e.hostPort.postMessage({__oaiDilMessage:!0,id:t,kind:"response"})}isLiveSession(e){return!this.disposed&&this.sessions.get(e.message.runnerId)===e}}function c(o){return a(o)&&o.__oaiDilMessage===!0&&(o.kind==="ack"||o.kind==="command"||o.kind==="event"||o.kind==="response")}function y(o){return a(o)&&o.__oaiDilWorker===!0&&(o.kind==="healthCheck"||o.kind==="healthy"?typeof o.requestId=="string":(o.kind==="executionStarted"||o.kind==="executionFinished")&&typeof o.runnerId=="string")}function a(o){return typeof o=="object"&&o!==null}function p(o){if(!(!a(o)||Array.isArray(o)))try{return JSON.parse(JSON.stringify(o))}catch{return}}const h=`(function(){"use strict";var U={exports:{}},lt;function A(){return lt||(lt=1,(function(h,t){h.path="dil_renderer/src/DILApiFacade",Object.defineProperty(t,"__esModule",{value:!0}),t.freezeObjectGraph=t.createDILGenUIFacade=t.hardenApiFacade=void 0;const d=3;function f(n){return Object.setPrototypeOf(n,null),s(n,!1),n}t.hardenApiFacade=f;function y(n){return f({dispatchAction(a){n(l(a,0))},issueNewTurn(a,p){n({handler:"client",payload:Object.assign(Object.assign({},p),{query:a}),type:"issue_new_turn"})},openEntityDetail(a,p,v){const m={category:a,query:p};v!==void 0&&(m.extraParams=v),n({handler:"client",payload:m,type:"open_entity_detail"})},openImageLightbox(a,p){n({handler:"client",payload:{images:a,selected_index:p},type:"open_image_lightbox"})},openUrl(a){n({handler:"client",payload:{url:a},type:"open_url"})}})}t.createDILGenUIFacade=y;function l(n,a){var p;if(n===null||typeof n!="object"||Array.isArray(n))throw new Error("GenUI.dispatchAction requires an action object.");const v=n,m={handler:(p=r(v.handler,"handler"))!==null&&p!==void 0?p:"client"},c=r(v.type,"type");c!==void 0&&(m.type=c);const R=r(v.loadingBehavior,"loadingBehavior");R!==void 0&&(m.loadingBehavior=R);const I=v.payload;if(I!==void 0){if(I===null||typeof I!="object"||Array.isArray(I))throw new Error("GenUI.dispatchAction requires payload to be an object.");m.payload=Object.assign({},I)}const x=v.fallbackAction;if(x!==void 0){if(a>=d)throw new Error("GenUI.dispatchAction exceeds the maximum fallback depth.");m.fallbackAction=l(x,a+1)}return m}function r(n,a){if(n!==void 0){if(typeof n!="string")throw new Error(\`GenUI.dispatchAction requires \${a} to be a string.\`);return n}}function s(n,a){i(n,a,new WeakSet)}t.freezeObjectGraph=s;function i(n,a,p){if(!(!u(n)||p.has(n))){p.add(n),a&&i(Object.getPrototypeOf(n),a,p);for(const v of Reflect.ownKeys(n)){const m=Object.getOwnPropertyDescriptor(n,v);m!==void 0&&("value"in m?i(m.value,a,p):(i(m.get,a,p),i(m.set,a,p)))}if(Object.freeze(n),!Object.isFrozen(n))throw new Error("Failed to freeze an object in the object graph.")}}function u(n){return typeof n=="object"&&n!==null||typeof n=="function"}})(U,U.exports)),U.exports}var ut=A(),z={exports:{}},dt;function O(){return dt||(dt=1,(function(h,t){h.path="dil_renderer/src/DILElement",Object.defineProperty(t,"__esModule",{value:!0}),t.createDilElement=t.isDILRuntimeElement=t.readRuntimeElementKey=t.propsWithChildren=t.createDilJsxRuntime=t.getDilComponentResolver=t.createDilComponentPlaceholder=t.DIL_RENDERED_PROP_NAME=t.DIL_RENDERED_PROP_ELEMENT_TYPE=t.TEXT_ELEMENT_TYPE=t.DIL_FRAGMENT=void 0;const d=Symbol("openai.valdi.dil.runtimeElement");t.DIL_FRAGMENT=Symbol("oai.dil.fragment"),t.TEXT_ELEMENT_TYPE="text",t.DIL_RENDERED_PROP_ELEMENT_TYPE="__dil-rendered-prop",t.DIL_RENDERED_PROP_NAME="__dilRenderedPropName";const f=Symbol("openai.valdi.dil.componentResolver");function y(a,p){const v=()=>{throw new Error(\`DIL component placeholder '\${a}' must be used as a JSX element.\`)};return Object.defineProperty(v,"name",{value:a}),Object.defineProperty(v,f,{value:p}),v}t.createDilComponentPlaceholder=y;function l(a){return a[f]}t.getDilComponentResolver=l;function r(a){return{Fragment:t.DIL_FRAGMENT,jsx:(p,v,...m)=>{const c=n(p,v,m);return a?.(c),c}}}t.createDilJsxRuntime=r;function s(a,p){const v={};if(a)for(const m in a)m!=="key"&&(v[m]=a[m]);return p.length===1?v.children=p[0]:p.length>1&&(v.children=p),v}t.propsWithChildren=s;function i(a){var p;const v=(p=a.props)===null||p===void 0?void 0:p.key;if(typeof v=="string"||typeof v=="number")return v}t.readRuntimeElementKey=i;function u(a){return a!==null&&typeof a=="object"&&a[d]===!0}t.isDILRuntimeElement=u;function n(a,p,v){return{[d]:!0,type:a,props:p??void 0,children:v}}t.createDilElement=n})(z,z.exports)),z.exports}var tt=O(),M={exports:{}},ct;function et(){return ct||(ct=1,(function(h,t){h.path="dil_renderer/src/DILHtmlViewMessenger",Object.defineProperty(t,"__esModule",{value:!0}),t.getDILHtmlViewMessengerHost=t.createDILHtmlViewMessengerApiFacade=t.createDILHtmlViewMessengerHost=t.DILHtmlViewMessengerApiImpl=void 0;const d=A(),f=Symbol("DILHtmlViewMessengerHost");class y{constructor(n,a){this.renderer=n,this.eventHandlers=new Map,this.options=a,this.channelId=n.nextHtmlViewMessengerChannelId(),this.host=l(this.channelId,{command:(p,v)=>this.receiveCommand(p,v),event:(p,v)=>this.receiveEvent(p,v),registerTransport:p=>this.renderer.registerHtmlViewMessengerTransport(this.channelId,p)}),this.unregisterReceiver=n.registerHtmlViewMessengerReceiver(this.channelId,{command:(p,v)=>this.receiveCommand(p,v),event:(p,v)=>this.receiveEvent(p,v)})}updateOptions(n){this.options=n}receiveCommand(n,a){var p,v;const m=(v=(p=this.options)===null||p===void 0?void 0:p.commands)===null||v===void 0?void 0:v[n];if(m===void 0)throw new Error(\`Unknown DIL html-view messenger command "\${n}"\`);return m(a)}receiveEvent(n,a){const p=this.eventHandlers.get(n);if(p!==void 0)for(const v of p)v(a)}emit(n,a){this.renderer.emitHtmlViewMessengerEvent(this.channelId,n,a)}sendCommand(n,a){return this.renderer.sendHtmlViewMessengerCommand(this.channelId,n,a)}on(n,a){let p=this.eventHandlers.get(n);return p===void 0&&(p=new Set,this.eventHandlers.set(n,p)),p.add(a),()=>{p?.delete(a)}}getHost(){return this.host}dispose(){this.unregisterReceiver(),this.eventHandlers.clear()}}t.DILHtmlViewMessengerApiImpl=y;function l(u,n){const a={channelId:u,command:n.command,event:n.event,registerTransport:n.registerTransport};return Object.freeze(i(a,a))}t.createDILHtmlViewMessengerHost=l;function r(u){const n=new Map,a=new Proxy(Object.create(null),{get:(v,m)=>{if(typeof m!="string"||m==="then")return;let c=n.get(m);return c===void 0&&(c=Object.freeze(R=>u.sendCommand(m,R)),n.set(m,c)),c}}),p=i({commands:a,emit:(v,m)=>{u.emit(v,m)},on:(v,m)=>{const c=u.on(v,m);return Object.freeze(()=>{c()})}},u.getHost());return(0,d.hardenApiFacade)(p)}t.createDILHtmlViewMessengerApiFacade=r;function s(u){if(!((typeof u!="object"||u===null)&&typeof u!="function"))return u[f]}t.getDILHtmlViewMessengerHost=s;function i(u,n){return new Proxy(u,{get:(a,p,v)=>p===f?n:Reflect.get(a,p,v)})}})(M,M.exports)),M.exports}var Mt=et(),V={exports:{}},N={exports:{}},F={exports:{}},H={exports:{}},pt;function nt(){return pt||(pt=1,(function(h,t){h.path="dil_renderer/src/DILRuntimeUtils",Object.defineProperty(t,"__esModule",{value:!0}),t.toError=t.isRecord=t.isPromiseLike=void 0;function d(l){return l!==null&&typeof l=="object"&&typeof l.then=="function"}t.isPromiseLike=d;function f(l){return l!==null&&typeof l=="object"}t.isRecord=f;function y(l){return l instanceof Error?l:new Error(String(l))}t.toError=y})(H,H.exports)),H.exports}var mt;function _t(){return mt||(mt=1,(function(h,t){h.path="dil_renderer/src/DILHookRuntime",Object.defineProperty(t,"__esModule",{value:!0}),t.runCleanup=t.areDependenciesEqual=void 0;const d=nt();function f(l,r){if(l.length!==r.length)return!1;for(let s=0;s<l.length;s++)if(!Object.is(l[s],r[s]))return!1;return!0}t.areDependenciesEqual=f;function y(l,r){try{l()}catch(s){r.reportError((0,d.toError)(s))}}t.runCleanup=y})(F,F.exports)),F.exports}var G={exports:{}},ht;function Vt(){return ht||(ht=1,(function(h,t){h.path="dil_renderer/src/DILRuntimeApiImpl",Object.defineProperty(t,"__esModule",{value:!0}),t.DILRuntimeApiImpl=void 0;const d=_t(),f=et();class y{constructor(r,s,i){this.htmlViewMessengerRuntime=r,this.host=s,this.statePersistence=i,this.activeBreakpoints=[],this.appData={},this.constants={},this.theme="light"}get renderedRootValue(){return this.rootValue}clearRenderedRootValue(){this.rootValue=void 0}updateVariables(r,s,i,u){if(this.hostIsMobile===void 0){const n=r.__dilHost;this.hostIsMobile=n!==null&&typeof n=="object"&&!Array.isArray(n)&&n.isMobile===!0}this.appData=r,this.constants=s,this.theme=i,this.activeBreakpoints=u}render(r){return this.rootValue=r,r}useAppData(r){return r===void 0?this.appData:r(this.appData)}useConstants(r){return r===void 0?this.constants:r(this.constants)}useCallback(r,s){return this.useMemo(()=>r,s)}useEffect(r,s){const i=this.host.requireCurrentHookFrame("useEffect"),u=this.readHook(i,0);if(u===void 0){const n={kind:0,cleanup:void 0,deps:s};i.hooks[i.hookIndex-1]=n,this.host.enqueuePendingEffect({frame:i,hook:n,effect:r});return}(s===void 0||u.deps===void 0||!(0,d.areDependenciesEqual)(u.deps,s))&&(u.deps=s,this.host.enqueuePendingEffect({frame:i,hook:u,effect:r}))}useId(){const r=this.host.requireCurrentHookFrame("useId"),s=this.readHook(r,1);if(s!==void 0)return s.value;const i=\`dil-\${r.id}-\${r.hookIndex-1}\`;return r.hooks[r.hookIndex-1]={kind:1,value:i},i}useDILMessenger(r){return this.useHtmlViewMessengerHook("useDILMessenger",r)}useHtmlViewMessenger(r){return this.useHtmlViewMessengerHook("useHtmlViewMessenger",r)}useHtmlViewMessengerHook(r,s){const i=this.host.requireCurrentHookFrame(r),u=this.readHook(i,3);if(u!==void 0)return u.messenger.updateOptions(s),u.publicApi;const n=new f.DILHtmlViewMessengerApiImpl(this.htmlViewMessengerRuntime,s),a=(0,f.createDILHtmlViewMessengerApiFacade)(n);return i.hooks[i.hookIndex-1]={kind:3,messenger:n,publicApi:a},a}useMemo(r,s){const i=this.host.requireCurrentHookFrame("useMemo"),u=this.readHook(i,2);if(u!==void 0&&(0,d.areDependenciesEqual)(u.deps,s))return u.value;const n=r();return u===void 0?i.hooks[i.hookIndex-1]={kind:2,value:n,deps:s}:(u.value=n,u.deps=s),n}useRef(r){const s=this.host.requireCurrentHookFrame("useRef"),i=this.readHook(s,4);if(i!==void 0)return i.ref;const u={current:r};return s.hooks[s.hookIndex-1]={kind:4,ref:u},u}useState(r,s){const i=this.host.requireCurrentHookFrame("useState"),u=this.readHook(i,5);if(u!==void 0)return[u.value,u.setter];const n=typeof r=="function"?r():r,a=this.statePersistence.createStateHook(i,n,s);return i.hooks[i.hookIndex-1]=a,[a.value,a.setter]}useTheme(){return{isDark:this.theme==="dark",isLight:this.theme==="light",theme:this.theme}}useBreakpoint(r){return this.activeBreakpoints.includes(r)}useIsMobile(){return this.hostIsMobile===!0}readHook(r,s){const i=r.hooks[r.hookIndex];if(r.hookIndex++,i!==void 0){if(i.kind!==s)throw new Error("DIL hooks must be called in the same order on every render.");return i}}}t.DILRuntimeApiImpl=y})(G,G.exports)),G.exports}var T={exports:{}},$={exports:{}},ft;function Nt(){return ft||(ft=1,(function(h,t){h.path="dil_renderer/src/DILStateSnapshotCodec",Object.defineProperty(t,"__esModule",{value:!0}),t.removeDILStateSnapshotValue=t.setDILStateSnapshotValue=t.parseDILStateSnapshot=void 0;const d=8*1024,f=8,y=128;function l(m){try{return i(JSON.parse(m))}catch{return null}}t.parseDILStateSnapshot=l;function r(m,c,R){const I=u(m?.state);return I[c]=R,i(I)}t.setDILStateSnapshotValue=r;function s(m,c){const R=u(m?.state);return delete R[c],i(R)}t.removeDILStateSnapshotValue=s;function i(m){try{if(!p(m)||!n(m,0,new WeakSet,{entries:0}))return null;const c=JSON.stringify(m);if(new TextEncoder().encode(c).byteLength>d)return null;const R=JSON.parse(c);return p(R)?{serialized:c,state:R}:null}catch{return null}}function u(m){const c=Object.create(null);if(m!==void 0)for(const R of Object.keys(m))c[R]=m[R];return c}function n(m,c,R,I){if(c>f)return!1;if(m===null||typeof m=="boolean")return!0;if(typeof m=="string")return!v(m);if(typeof m=="number")return Number.isFinite(m);if(typeof m!="object"||R.has(m))return!1;R.add(m);try{if(Array.isArray(m)){if(Object.getPrototypeOf(m)!==Array.prototype||m.length>y-I.entries||Reflect.ownKeys(m).length!==m.length+1)return!1;for(let x=0;x<m.length;x++)if(!a(m,String(x),c,R,I))return!1;return!0}if(!p(m))return!1;for(const x of Reflect.ownKeys(m))if(typeof x!="string"||v(x)||!a(m,x,c,R,I))return!1;return!0}finally{R.delete(m)}}function a(m,c,R,I,x){const e=Object.getOwnPropertyDescriptor(m,c);return e===void 0||!e.enumerable||e.value===void 0?!1:(x.entries++,x.entries<=y&&n(e.value,R+1,I,x))}function p(m){if(m===null||typeof m!="object"||Array.isArray(m))return!1;const c=Object.getPrototypeOf(m);return c===Object.prototype||c===null}function v(m){try{return encodeURIComponent(m),!1}catch{return!0}}})($,$.exports)),$.exports}var gt;function Ft(){return gt||(gt=1,(function(h,t){h.path="dil_renderer/src/DILStatePersistence",Object.defineProperty(t,"__esModule",{value:!0}),t.DILStatePersistence=t.DILStateSnapshotChangeOrigin=void 0;const d=Nt();var f;(function(l){l[l.Initial=0]="Initial",l[l.LocalAction=1]="LocalAction"})(f||(t.DILStateSnapshotChangeOrigin=f={}));class y{constructor(r,s,i){this.scheduleRender=r,this.stateChangeHandler=s,this.stateSynchronizationErrorHandler=i,this.allocatedSlots=new Set,this.allocationByOwner=new Map,this.nextAnonymousSlot=0,this.pendingInitialSnapshot=!1}createStateHook(r,s,i){var u;const n=i?.key;if(n!==void 0&&(typeof n!="string"||n.length===0))throw new Error("DIL state keys must be nonempty strings.");const a=r.stateIdentity,p=a?.nextStateSlot;a!==void 0&&a.nextStateSlot++;const v=r.hookIndex-1,m=a===void 0?\`\${r.id}:\${v}\`:\`\${n??p}\\0\${a.ownerKey}\`,c=this.resolveSlot(m,n,a?.siblingOrdinal,a!==void 0),R=(u=this.snapshot)===null||u===void 0?void 0:u.state[c],x={kind:5,defaultValue:s,ownerId:m,slot:c,value:R===void 0?s:R,setter:()=>{}};if(x.setter=e=>{const o=typeof e=="function"?e(x.value):e;Object.is(x.value,o)||(x.value=o,this.updatePersistedHookValue(x,o),this.scheduleRender())},R===void 0){const e=(0,d.setDILStateSnapshotValue)(this.snapshot,c,s);e!==null&&(this.snapshot=e,this.pendingInitialSnapshot=!0)}return x}releaseStateHook(r){const s=this.allocationByOwner.get(r.ownerId);s===void 0||s.retainAfterUnmount||(this.allocationByOwner.delete(r.ownerId),this.allocatedSlots.delete(s.slot))}setStateSnapshot(r){var s;const i=r===void 0?void 0:(0,d.parseDILStateSnapshot)(r);return i===null||i?.serialized===((s=this.snapshot)===null||s===void 0?void 0:s.serialized)?!1:(this.snapshot=i,this.pendingInitialSnapshot=!1,!0)}applySnapshotToHook(r){var s;const i=(s=this.snapshot)===null||s===void 0?void 0:s.state[r.slot],u=i===void 0?r.defaultValue:i;return Object.is(r.value,u)?!1:(r.value=u,!0)}commitStateSnapshot(){!this.pendingInitialSnapshot||this.snapshot===void 0||(this.pendingInitialSnapshot=!1,this.notifyStateChange(this.snapshot.serialized,f.Initial))}updateRenderedRootIdentity(r){if(this.renderedRootIdentity===void 0){this.renderedRootIdentity=r;return}this.renderedRootIdentity!==r&&(this.renderedRootIdentity=r,this.allocationByOwner.clear(),this.allocatedSlots.clear(),this.nextAnonymousSlot=0)}resolveSlot(r,s,i,u){const n=this.allocationByOwner.get(r);if(n!==void 0)return n.slot;let a;if(s===void 0)do a=String(this.nextAnonymousSlot),this.nextAnonymousSlot++;while(this.allocatedSlots.has(a));else{a=s;let p=i??1;for(p>1&&(a=\`\${s}:\${p}\`);this.allocatedSlots.has(a);)p++,a=\`\${s}:\${p}\`}return this.allocationByOwner.set(r,{retainAfterUnmount:u,slot:a}),this.allocatedSlots.add(a),a}updatePersistedHookValue(r,s){var i,u;let n=(0,d.setDILStateSnapshotValue)(this.snapshot,r.slot,s);n===null&&(((i=this.snapshot)===null||i===void 0?void 0:i.state[r.slot])===void 0||(n=(0,d.removeDILStateSnapshotValue)(this.snapshot,r.slot),n===null))||n.serialized!==((u=this.snapshot)===null||u===void 0?void 0:u.serialized)&&(this.snapshot=n,this.notifyStateChange(n.serialized,f.LocalAction))}notifyStateChange(r,s){if(this.stateChangeHandler!==void 0)try{this.stateChangeHandler(r,s)}catch(i){this.stateSynchronizationErrorHandler(i instanceof Error?i:new Error(String(i)))}}}t.DILStatePersistence=y})(T,T.exports)),T.exports}var W={exports:{}},yt;function vt(){return yt||(yt=1,(function(h,t){h.path="dil_renderer/src/DILSourceEvaluator",Object.defineProperty(t,"__esModule",{value:!0}),t.createDILRuntimeApiFacade=t.createDILDateConstructor=t.evaluateDILSource=t.createDILJsxRuntimeFacade=void 0;const d=O(),f=A();function y(u){return(0,f.hardenApiFacade)((0,d.createDilJsxRuntime)(u))}t.createDILJsxRuntimeFacade=y;function l(u,n,a,p,v,m){const c=m("DILRenderer.compileJS",()=>r(u));m("DILRenderer.evaluateJS",()=>{c(n,a,p,v)})}t.evaluateDILSource=l;function r(u){return new Function("DIL","__dil","GenUI","Date",\`"use strict";
+\${u}\`)}function s(u){if(u===void 0)return Date;const n=function(...a){return new.target===void 0?new Date(u).toString():Reflect.construct(Date,a.length===0?[u]:a,new.target)};return Object.setPrototypeOf(n,Date),Object.defineProperty(n,"prototype",{value:Date.prototype}),Object.defineProperty(n,"now",{configurable:!1,enumerable:!1,value:Object.freeze(()=>u),writable:!1}),Object.freeze(n)}t.createDILDateConstructor=s;function i(u){const n={render(a){return u.render(a)},useAppData(a){return u.useAppData(a)},useConstants(a){return u.useConstants(a)},useCallback(a,p){return u.useCallback(a,p)},useEffect(a,p){u.useEffect(a,p)},useId(){return u.useId()},useDILMessenger(a){return u.useDILMessenger(a)},useHtmlViewMessenger(a){return u.useHtmlViewMessenger(a)},useMemo(a,p){return u.useMemo(a,p)},useRef(a){return u.useRef(a)},useState(a,p){return u.useState(a,p)},useTheme(){return u.useTheme()},useBreakpoint(a){return u.useBreakpoint(a)},useIsMobile(){return u.useIsMobile()}};return(0,f.hardenApiFacade)(n)}t.createDILRuntimeApiFacade=i})(W,W.exports)),W.exports}var Rt;function Ht(){return Rt||(Rt=1,(function(h,t){h.path="dil_renderer/src/DILRenderFunctionRuntime",Object.defineProperty(t,"__esModule",{value:!0}),t.DILRenderFunctionRuntime=void 0;const d=O(),f=_t(),y=rt(),l=Vt(),r=Ft(),s=vt(),i=nt(),u=Symbol("openai.valdi.dil.componentFunctionId");let n=0;class a{constructor(e,o,_,g,b,E,C,w,k,D){this.elementsMetadata=e,this.delegate=o,this.errorReporter=_,this.errorMode=g,this.scheduler=E,this.trace=C,this.dateConstructor=w,this.genUIFacade=k,this.committedRootChildren=[],this.nextFrameId=0,this.nextNodeId=1,this.nodeStack=[],this.pendingDestroyedNodes=[],this.renderId=0,this.renderFailed=!1,this.sourceGeneration=0,this.rootNode={key:"root",kind:4,lastRenderId:0,parentIndex:0},this.nextRootChildren=[],this.namedFunctionIdentities=new Map,this.keyedComponents=new Map,this.renderedParentStack=[],this.resolvedComponents=Object.create(null),this.statePersistence=new r.DILStatePersistence(()=>this.scheduleRender(),D,P=>this.errorReporter.reportError(P)),this.runtimeApi=new l.DILRuntimeApiImpl(b,this,this.statePersistence),this.runtimeApiFacade=(0,s.createDILRuntimeApiFacade)(this.runtimeApi),this.jsxRuntimeFacade=(0,s.createDILJsxRuntimeFacade)(P=>this.registerKeyedComponent(P))}evaluate(e){this.sourceGeneration++,this.runtimeApi.clearRenderedRootValue();try{(0,s.evaluateDILSource)(e,this.runtimeApiFacade,this.jsxRuntimeFacade,this.genUIFacade,this.dateConstructor,this.trace)}catch(o){this.runtimeApi.clearRenderedRootValue(),this.reportError(o)}}clearRenderedRoot(){this.runtimeApi.clearRenderedRootValue()}setStateSnapshot(e){return this.statePersistence.setStateSnapshot(e)?(this.applyStateSnapshotToMountedHooks(this.rootNode)&&this.scheduleRender(),!0):!1}commitStateSnapshot(){this.statePersistence.commitStateSnapshot()}didLastRenderFail(){return this.renderFailed}render(e,o,_,g){this.runtimeApi.updateVariables(e,o,_,g),this.pendingEffects=void 0,this.renderFailed=!1,this.unmountCleanups=void 0,this.nodeStack.length=0,this.renderedParentStack.length=0,this.renderedParentStack.push(void 0),this.renderId++,this.pushRenderNode(this.rootNode);try{const b=this.runtimeApi.renderedRootValue;this.statePersistence.updateRenderedRootIdentity(this.getRenderedRootIdentity(b)),this.renderValue(b,"root")}catch(b){this.reportError(b)}finally{try{this.endRenderNode(this.rootNode)}catch(b){this.reportError(b)}if(!this.renderFailed)try{this.commitUpdates()}catch(b){this.reportError(b)}this.renderedParentStack.length=0,this.scheduleEffectFlush()}}dispose(){this.pendingEffects=void 0,this.unmountCleanups=void 0;const e=this.rootNode.children;if(e!==void 0){for(const o of e.children)this.destroyRenderNode(o);this.rootNode.children=void 0}this.runtimeApi.clearRenderedRootValue(),this.scheduleEffectFlush()}renderValue(e,o){if(!(e==null||typeof e=="boolean")){if(Array.isArray(e)){const _=this.beginRenderNode(0,\`array:\${o}\`);try{let g=0;for(const b of e)this.renderValue(b,c(b,g)),g++}finally{this.endRenderNode(_)}return}if((0,d.isDILRuntimeElement)(e)){this.renderRuntimeElement(e,o);return}if(typeof e=="function"){const _=this.resolveComponent(e);this.renderComponent(_,void 0,[],this.getComponentNodeKey(_,o),void 0);return}this.renderText(String(e),\`t:\${o}\`)}}renderRuntimeElement(e,o){const _=e.type;if(_===d.DIL_FRAGMENT){this.renderFragment(e.children,o);return}const g=(0,d.readRuntimeElementKey)(e),b=g===void 0?o:\`k:\${typeof g}:\${String(g)}\`;if(typeof _=="function"){const E=this.resolveComponent(_);this.renderComponent(E,e.props,e.children,this.getComponentNodeKey(E,b),g===void 0?void 0:this.getComponentStateIdentity(E,g));return}this.renderElement(_,e.props,e.children,\`e:\${_}:\${b}\`)}renderFragment(e,o){let _=0;for(const g of e)this.renderValue(g,R(g,_,o)),_++}renderChildren(e){let o=0;for(const _ of e)this.renderValue(_,c(_,o)),o++}renderComponent(e,o,_,g,b){const E=this.beginRenderNode(1,g);E.hookFrame.stateIdentity=this.resolveComponentStateIdentity(b,E,g);try{const C=e((0,d.propsWithChildren)(o,_));this.renderValue(C,"rendered")}catch(C){this.reportSubtreeError(C)}finally{this.endRenderNode(E)}}resolveComponent(e){const o=(0,d.getDilComponentResolver)(e);if(o===void 0)return e;let _=this.resolvedComponents[e.name];return _===void 0&&(_=o(this.runtimeApiFacade,this.jsxRuntimeFacade,this.genUIFacade),this.resolvedComponents[e.name]=_),_}renderElement(e,o,_,g){var b;const E=this.elementsMetadata[e];if(E===void 0){this.reportSubtreeError(new Error(\`Unknown DIL element type "\${e}".\`));return}const C=this.beginRenderNode(2,g);try{const w=E.renderedPropNames,k=w!==void 0&&o!==void 0?this.resolveRenderableProps(w,o):void 0;let D=!0,P,st;switch(E.childrenMode){case y.DILElementChildrenMode.RenderedNodes:break;case y.DILElementChildrenMode.PrimitiveText:{st=I(_),D=st===void 0;break}case y.DILElementChildrenMode.ResolvedValues:break;case y.DILElementChildrenMode.OpaqueTree:D=!1,P=this.renderOpaqueChildren(_);break}C.elementOutput={metadata:E,opaqueChildren:P,primitiveTextValue:st,props:k===void 0?o:k.props};const at=this.getRenderedElement(C);at.lastResolvedRenderId=this.renderId,at.resolvedParent=this.renderedParentStack[this.renderedParentStack.length-1],this.renderedParentStack.push(at);try{if(D){if(k!==void 0)for(const Ot of k.elements)this.renderRuntimeElement(Ot,\`prop:\${(b=Ot.props)===null||b===void 0?void 0:b[d.DIL_RENDERED_PROP_NAME]}\`);this.renderChildren(_)}}finally{this.renderedParentStack.pop()}}catch(w){this.reportSubtreeError(w)}finally{this.endRenderNode(C)}}resolveRenderableProps(e,o){let _;for(const g of e){const b=o[g];(0,d.isDILRuntimeElement)(b)&&(_=_??{elements:[],props:Object.assign({},o)},delete _.props[g],_.elements.push((0,d.createDilElement)(d.DIL_RENDERED_PROP_ELEMENT_TYPE,{[d.DIL_RENDERED_PROP_NAME]:g},[b])))}return _}renderText(e,o){const _=this.beginRenderNode(5,o);try{_.textOutput=e;const g=this.getRenderedText(_);g.lastResolvedRenderId=this.renderId,g.resolvedParent=this.renderedParentStack[this.renderedParentStack.length-1]}finally{this.endRenderNode(_)}}renderOpaqueChildren(e){const o=[];let _=0;for(const g of e)this.renderOpaqueValue(g,c(g,_),o),_++;return o}renderOpaqueValue(e,o,_){if(!(e==null||typeof e=="boolean")){if(Array.isArray(e)){const g=this.beginRenderNode(0,\`opaque-array:\${o}\`);try{let b=0;for(const E of e)this.renderOpaqueValue(E,c(E,b),_),b++}finally{this.endRenderNode(g)}return}if((0,d.isDILRuntimeElement)(e)){this.renderOpaqueRuntimeElement(e,o,_);return}if(typeof e=="function"){const g=this.resolveComponent(e);this.renderOpaqueComponent(g,void 0,[],this.getComponentNodeKey(g,o),void 0,_);return}if(typeof e=="string"||typeof e=="number"){_.push(e);return}_.push(String(e))}}renderOpaqueRuntimeElement(e,o,_){const g=e.type;if(g===d.DIL_FRAGMENT){this.renderOpaqueFragment(e.children,o,_);return}const b=(0,d.readRuntimeElementKey)(e),E=b===void 0?o:\`k:\${typeof b}:\${String(b)}\`;if(typeof g=="function"){const w=this.resolveComponent(g);this.renderOpaqueComponent(w,e.props,e.children,this.getComponentNodeKey(w,E),b===void 0?void 0:this.getComponentStateIdentity(w,b),_);return}const C=this.beginRenderNode(3,\`opaque-element:\${g}:\${E}\`);try{_.push({type:g,props:p(e.props),children:this.renderOpaqueChildren(e.children)})}finally{this.endRenderNode(C)}}renderOpaqueFragment(e,o,_){let g=0;for(const b of e)this.renderOpaqueValue(b,R(b,g,o),_),g++}renderOpaqueComponent(e,o,_,g,b,E){const C=this.beginRenderNode(1,g);C.hookFrame.stateIdentity=this.resolveComponentStateIdentity(b,C,g);const w=E.length;try{const k=e((0,d.propsWithChildren)(o,_));this.renderOpaqueValue(k,"rendered",E)}catch(k){E.length=w,this.reportSubtreeError(k)}finally{this.endRenderNode(C)}}reportSubtreeError(e){this.errorMode===y.DILRenderErrorMode.ReportAndAbortRender&&(this.renderFailed=!0),this.errorReporter.reportError((0,i.toError)(e))}reportError(e){this.renderFailed=!0,this.errorReporter.reportError((0,i.toError)(e))}getHookFrame(e){if(e.hookFrame!==void 0)return e.hookFrame;const o={id:this.nextFrameId,hookIndex:0,hooks:[],stateIdentity:void 0};return this.nextFrameId++,e.hookFrame=o,o}getFunctionId(e){var o;const _=e,g=_[u];if(g!==void 0)return g;const b=this.claimStableFunctionIdentity(e.name),E=(o=b?.id)!==null&&o!==void 0?o:n++;return Object.defineProperty(_,u,{value:E}),E}claimStableFunctionIdentity(e){if(e!==""){const _=this.namedFunctionIdentities.get(e);if(_===void 0){const g=this.createStableFunctionIdentity();return this.namedFunctionIdentities.set(e,g),g}return _.claimedGeneration!==this.sourceGeneration?(_.claimedGeneration=this.sourceGeneration,_):void 0}const o=this.firstAnonymousFunctionIdentity;if(o===void 0){const _=this.createStableFunctionIdentity();return this.firstAnonymousFunctionIdentity=_,_}if(o.claimedGeneration!==this.sourceGeneration)return o.claimedGeneration=this.sourceGeneration,o}createStableFunctionIdentity(){return{id:n++,claimedGeneration:this.sourceGeneration}}getComponentNodeKey(e,o){return\`c:\${this.getFunctionId(e)}:\${o}\`}getComponentStateIdentity(e,o){const _=\`\${typeof o}:\${String(o)}\`;let g=1;for(const[b,E]of this.keyedComponents)E===e&&\`\${typeof b}:\${String(b)}\`<_&&g++;return{key:o,nextStateSlot:0,ownerKey:_,siblingOrdinal:g}}resolveComponentStateIdentity(e,o,_){return e===void 0||o.key===_?e:{key:e.key,nextStateSlot:0,ownerKey:\`\${e.ownerKey}\\0\${o.key}\`,siblingOrdinal:e.siblingOrdinal}}registerKeyedComponent(e){const o=(0,d.readRuntimeElementKey)(e);o!==void 0&&typeof e.type=="function"&&this.keyedComponents.set(o,this.resolveComponent(e.type))}getRenderedRootIdentity(e){if((0,d.isDILRuntimeElement)(e)){const o=(0,d.readRuntimeElementKey)(e),_=o===void 0?"":\`\${typeof o}:\${String(o)}\`;return typeof e.type=="function"?\`component:\${this.getFunctionId(this.resolveComponent(e.type))}:\${_}\`:\`element:\${String(e.type)}:\${_}\`}return typeof e=="function"?\`component:\${this.getFunctionId(this.resolveComponent(e))}\`:Array.isArray(e)?"array":typeof e}requireCurrentHookFrame(e){const o=this.nodeStack[this.nodeStack.length-1],_=o?.hookFrame;if(_===void 0)throw new Error(\`DIL.\${e} can only be called while rendering a DIL component.\`);return _}beginRenderNode(e,o){const _=this.getCurrentRenderNode(),g=this.resolveRenderNode(_,e,o,void 0);if(e===1){const b=this.getHookFrame(g);b.hookIndex=0}else g.hookFrame=_.hookFrame;return this.pushRenderNode(g),g}pushRenderNode(e){e.children!==void 0&&(e.children.insertionIndex=0),e.lastRenderId=this.renderId,this.nodeStack.push(e)}endRenderNode(e){if(this.nodeStack.pop()!==e)throw new Error("Unbalanced DIL render node stack.");this.processChildrenUpdate(e)}getCurrentRenderNode(){const e=this.nodeStack[this.nodeStack.length-1];if(e===void 0)throw new Error("Unbalanced DIL render node stack.");return e}resolveRenderNode(e,o,_,g){const b=g===void 0?_:\`\${_}-\${g}\`;let E,C=e.children;if(C===void 0?(C={childByKey:{},children:[],insertionIndex:0},e.children=C):E=C.childByKey[b],E===void 0)E={key:b,kind:o,lastRenderId:this.renderId,parent:e,parentIndex:0},C.childByKey[b]=E;else if(E.kind!==o||E.lastRenderId===this.renderId){const w=C.insertionIndex-E.parentIndex+1;return this.resolveRenderNode(e,o,_,w)}return this.insertRenderNodeInParent(E,C),E}insertRenderNodeInParent(e,o){const _=o.insertionIndex;if(o.insertionIndex++,e.parentIndex=_,o.children!==o.previousChildren){o.children.push(e);return}if(o.children[_]!==e){const g=o.children.slice(0,_);g.push(e),o.children=g}}processChildrenUpdate(e){const o=e.children;if(o===void 0)return;if(o.children===o.previousChildren){const g=o.insertionIndex;if(g===o.children.length)return;o.children=o.children.slice(0,g)}const _=o.previousChildren;if(_!==void 0)for(const g of _)g.lastRenderId!==this.renderId&&(delete o.childByKey[g.key],this.destroyRenderNode(g));o.previousChildren=o.children}destroyRenderNode(e){const o=e.renderedNode;if(o?.committed&&this.pendingDestroyedNodes.push(o),e.kind===1&&e.hookFrame!==void 0)for(const g of e.hookFrame.hooks)g.kind===0&&g.cleanup!==void 0?(this.enqueueUnmountCleanup(g.cleanup),g.cleanup=void 0):g.kind===3?g.messenger.dispose():g.kind===5&&this.statePersistence.releaseStateHook(g);e.hookFrame=void 0;const _=e.children;if(_!==void 0){for(const g of _.children)this.destroyRenderNode(g);e.children=void 0}}applyStateSnapshotToMountedHooks(e){let o=!1;if(e.kind===1&&e.hookFrame!==void 0)for(const g of e.hookFrame.hooks)g.kind===5&&this.statePersistence.applySnapshotToHook(g)&&(o=!0);const _=e.children;if(_!==void 0)for(const g of _.children)this.applyStateSnapshotToMountedHooks(g)&&(o=!0);return o}commitUpdates(){for(const o of this.pendingDestroyedNodes)this.delegate.onNodeDestroyed(o.id),o.committed=!1;this.pendingDestroyedNodes.length=0,this.commitChildUpdates(void 0,this.committedRootChildren,this.nextRootChildren,this.rootNode);const e=this.committedRootChildren;this.committedRootChildren=this.nextRootChildren,this.nextRootChildren=e,this.nextRootChildren.length=0}commitChildUpdates(e,o,_,g){let b=0,E=0;this.forEachDirectRenderedChild(g,C=>{var w;const k=C.renderedNode;for(;b<o.length&&(o[b].lastResolvedRenderId!==this.renderId||o[b].resolvedParent!==e);)b++;if(this.emitRenderedNodeChanges(k,C),k!==o[b]?this.delegate.onNodeMoved(k.id,(w=e?.id)!==null&&w!==void 0?w:0,E):b++,_.push(k),k.kind===2){this.commitChildUpdates(k,k.children,k.nextChildren,C);const D=k.children;k.children=k.nextChildren,k.nextChildren=D,k.nextChildren.length=0}E++})}emitRenderedNodeChanges(e,o){e.kind===5?this.emitRenderedTextChanges(e,o.textOutput):this.emitRenderedElementChanges(e,o.elementOutput)}emitRenderedElementChanges(e,o){var _,g;const b=e.metadata,E=o.props;if(!e.committed){if(this.delegate.onElementNodeCreated(e.id,e.metadata.typeId),E!==void 0){for(const C in E)if(C!=="key"){const w=E[C];this.delegate.onNodePropChanged(e.id,C,w),e.props[C]=w}}if(b.childrenMode===y.DILElementChildrenMode.PrimitiveText){const C=b.primitiveTextProp,w=(_=o.primitiveTextValue)!==null&&_!==void 0?_:E?.[C];e.props[C]!==w&&this.delegate.onNodePropChanged(e.id,C,w),e.props[C]=w}if(b.childrenMode===y.DILElementChildrenMode.OpaqueTree){const C=o.opaqueChildren;this.delegate.onNodeOpaqueChildrenChanged(e.id,C),e.opaqueChildren=C}e.committed=!0;return}if(E!==void 0){for(const C in E)if(C!=="key"){const w=E[C];e.props[C]!==w&&this.delegate.onNodePropChanged(e.id,C,w),e.props[C]=w}}if(b.childrenMode===y.DILElementChildrenMode.PrimitiveText){const C=b.primitiveTextProp,w=(g=o.primitiveTextValue)!==null&&g!==void 0?g:E?.[C];e.props[C]!==w&&this.delegate.onNodePropChanged(e.id,C,w),e.props[C]=w}if(b.childrenMode===y.DILElementChildrenMode.OpaqueTree){const C=o.opaqueChildren;v(e.opaqueChildren,C)||this.delegate.onNodeOpaqueChildrenChanged(e.id,C),e.opaqueChildren=C}}emitRenderedTextChanges(e,o){if(!e.committed){this.delegate.onTextNodeCreated(e.id,o),e.value=o,e.committed=!0;return}e.value!==o&&(this.delegate.onTextNodeChanged(e.id,o),e.value=o)}getRenderedElement(e){const o=e.renderedNode;if(o!==void 0)return o;const _={id:this.nextNodeId++,kind:2,metadata:e.elementOutput.metadata,children:[],committed:!1,lastResolvedRenderId:0,nextChildren:[],opaqueChildren:void 0,props:{},resolvedParent:void 0};return e.renderedNode=_,_}getRenderedText(e){const o=e.renderedNode;if(o!==void 0)return o;const _={id:this.nextNodeId++,kind:5,committed:!1,lastResolvedRenderId:0,resolvedParent:void 0,value:""};return e.renderedNode=_,_}forEachDirectRenderedChild(e,o){const _=e.children;if(_!==void 0)for(const g of _.children)g.kind===2||g.kind===5?o(g):this.forEachDirectRenderedChild(g,o)}scheduleRender(){this.scheduler.scheduleRender()}enqueuePendingEffect(e){this.pendingEffects===void 0&&(this.pendingEffects=[]),this.pendingEffects.push(e)}enqueueUnmountCleanup(e){this.unmountCleanups===void 0&&(this.unmountCleanups=[]),this.unmountCleanups.push(e)}scheduleEffectFlush(){const e=this.pendingEffects,o=this.unmountCleanups,_=()=>{if(o!==void 0)for(const g of o)(0,f.runCleanup)(g,this.errorReporter);if(e!==void 0)for(const g of e){g.hook.cleanup!==void 0&&((0,f.runCleanup)(g.hook.cleanup,this.errorReporter),g.hook.cleanup=void 0);try{const b=g.effect();g.hook.cleanup=typeof b=="function"?b:void 0}catch(b){this.reportError(b)}}};this.scheduler.scheduleFlush(_)}}t.DILRenderFunctionRuntime=a;function p(x){const e={};if(x!==void 0)for(const o in x)o!=="key"&&(e[o]=x[o]);return e}function v(x,e){if(x===void 0||x.length!==e.length)return!1;for(let o=0;o<x.length;o++){const _=x[o],g=e[o];if(typeof _!="object"||typeof g!="object"){if(_!==g)return!1;continue}if(_.type!==g.type||!m(_.props,g.props)||!v(_.children,g.children))return!1}return!0}function m(x,e){const o=Object.keys(x),_=Object.keys(e);if(o.length!==_.length)return!1;for(const g of o)if(x[g]!==e[g])return!1;return!0}function c(x,e){if((0,d.isDILRuntimeElement)(x)&&x.type!==d.DIL_FRAGMENT){const o=(0,d.readRuntimeElementKey)(x);if(o!==void 0)return\`k:\${typeof o}:\${String(o)}\`}return\`i:\${e}\`}function R(x,e,o){return e===0?o:\`f:\${o}:\${c(x,e)}\`}function I(x){if(x.length===0)return;let e="";for(const o of x)if(!(o==null||typeof o=="boolean")){if(typeof o!="string"&&typeof o!="number")return;e+=String(o)}return e}})(N,N.exports)),N.exports}var B={exports:{}},q={exports:{}},xt;function Gt(){return xt||(xt=1,(function(h,t){h.path="dil_renderer/src/DILHtmlViewMessengerTransportRegistry",Object.defineProperty(t,"__esModule",{value:!0}),t.DILHtmlViewMessengerTransportRegistry=void 0;const d=nt();class f{constructor(l){this.errorReporter=l,this.htmlViewMessengerChannelIndex=0,this.htmlViewMessengerTransports=new Map,this.queuedHtmlViewMessengerMessages=new Map}register(l,r){return this.htmlViewMessengerTransports.set(l,r),this.flushQueuedHtmlViewMessengerMessages(l,r),()=>{this.htmlViewMessengerTransports.get(l)===r&&this.htmlViewMessengerTransports.delete(l)}}nextChannelId(){const l=\`dil_html_view_messenger_\${this.htmlViewMessengerChannelIndex}\`;return this.htmlViewMessengerChannelIndex++,l}sendCommand(l,r,s){const i=this.htmlViewMessengerTransports.get(l);if(i===void 0)return new Promise((u,n)=>{this.queueHtmlViewMessengerMessage(l,{data:s,kind:0,reject:n,resolve:u,type:r})});try{return Promise.resolve(i.command(r,s))}catch(u){return Promise.reject(u)}}emitEvent(l,r,s){const i=this.htmlViewMessengerTransports.get(l);if(i===void 0){this.queueHtmlViewMessengerMessage(l,{data:s,kind:1,type:r});return}i.event(r,s)}queueHtmlViewMessengerMessage(l,r){var s;const i=(s=this.queuedHtmlViewMessengerMessages.get(l))!==null&&s!==void 0?s:[];i.push(r),this.queuedHtmlViewMessengerMessages.set(l,i)}flushQueuedHtmlViewMessengerMessages(l,r){const s=this.queuedHtmlViewMessengerMessages.get(l);if(s!==void 0){this.queuedHtmlViewMessengerMessages.delete(l);for(const i of s)if(i.kind===0)try{Promise.resolve(r.command(i.type,i.data)).then(i.resolve,i.reject)}catch(u){i.reject(u)}else try{r.event(i.type,i.data)}catch(u){this.errorReporter.reportError((0,d.toError)(u))}}}}t.DILHtmlViewMessengerTransportRegistry=f})(q,q.exports)),q.exports}var bt;function Tt(){return bt||(bt=1,(function(h,t){h.path="dil_renderer/src/DILRendererHtmlViewMessengerState",Object.defineProperty(t,"__esModule",{value:!0}),t.DILRendererHtmlViewMessengerState=void 0;const d=Gt();class f{constructor(l){this.receivers=new Map,this.transports=new d.DILHtmlViewMessengerTransportRegistry(l)}registerReceiver(l,r){return this.receivers.set(l,r),()=>{this.receivers.get(l)===r&&this.receivers.delete(l)}}registerTransport(l,r){return this.transports.register(l,r)}receiveCommand(l,r,s){const i=this.receivers.get(l);if(i===void 0)throw new Error(\`Unknown DIL html-view messenger channel "\${l}"\`);return i.command(r,s)}receiveEvent(l,r,s){var i;(i=this.receivers.get(l))===null||i===void 0||i.event(r,s)}nextChannelId(){return this.transports.nextChannelId()}sendCommand(l,r,s){return this.transports.sendCommand(l,r,s)}emitEvent(l,r,s){this.transports.emitEvent(l,r,s)}}t.DILRendererHtmlViewMessengerState=f})(B,B.exports)),B.exports}var It;function rt(){return It||(It=1,(function(h,t){h.path="dil_renderer/src/DILRenderer",Object.defineProperty(t,"__esModule",{value:!0}),t.DILRenderer=t.DILElementRenderNodeKind=t.DILElementChildrenMode=t.DILRenderErrorMode=t.DILStreamingAnimation=void 0;const d=Ht(),f=vt(),y=Tt();var l;(function(n){n[n.Disabled=0]="Disabled",n[n.Normal=1]="Normal",n[n.Snappy=2]="Snappy"})(l||(t.DILStreamingAnimation=l={}));var r;(function(n){n[n.ReportAndAbortRender=0]="ReportAndAbortRender",n[n.ReportAndSkipSubtree=1]="ReportAndSkipSubtree"})(r||(t.DILRenderErrorMode=r={}));var s;(function(n){n[n.RenderedNodes=0]="RenderedNodes",n[n.PrimitiveText=1]="PrimitiveText",n[n.ResolvedValues=2]="ResolvedValues",n[n.OpaqueTree=3]="OpaqueTree"})(s||(t.DILElementChildrenMode=s={}));var i;(function(n){n[n.Element=0]="Element",n[n.Text=1]="Text"})(i||(t.DILElementRenderNodeKind=i={}));class u{constructor(a){this.options=a,this.runtimeHtmlViewMessenger={emitHtmlViewMessengerEvent:(p,v,m)=>{this.emitHtmlViewMessengerEvent(p,v,m)},nextHtmlViewMessengerChannelId:()=>this.nextHtmlViewMessengerChannelId(),registerHtmlViewMessengerReceiver:(p,v)=>this.registerDILHtmlViewMessengerReceiver(p,v),registerHtmlViewMessengerTransport:(p,v)=>this.registerDILHtmlViewMessengerTransport(p,v),sendHtmlViewMessengerCommand:(p,v,m)=>this.sendHtmlViewMessengerCommand(p,v,m)}}createRenderFunction(a){const p=this.createRenderContext(void 0,r.ReportAndAbortRender);return p.updateSource(a),(v,m,c,R)=>{p.render(v,m,c,R),p.didLastRenderFail()||p.commitStateSnapshot()}}createRenderContext(a,p){const v=new d.DILRenderFunctionRuntime(this.options.elementsMetadata,this.options.delegate,this.options.errorReporter,p,this.runtimeHtmlViewMessenger,this.options.scheduler,this.options.trace,(0,f.createDILDateConstructor)(a),this.options.genUI,this.options.stateChangeHandler);return{render:(m,c,R,I)=>{this.options.trace("DILRenderer.render",()=>{var x;v.render(m,(x=I.constants)!==null&&x!==void 0?x:{},c,R)})},commitStateSnapshot:()=>{v.commitStateSnapshot()},didLastRenderFail:()=>v.didLastRenderFail(),setStateSnapshot:m=>v.setStateSnapshot(m),updateSource:m=>{v.evaluate(m)},clearRenderedRoot:()=>{v.clearRenderedRoot()},dispose:()=>{v.dispose()}}}registerDILHtmlViewMessengerTransport(a,p){return this.getHtmlViewMessengerState().registerTransport(a,p)}registerDILHtmlViewMessengerReceiver(a,p){return this.getHtmlViewMessengerState().registerReceiver(a,p)}receiveDILHtmlViewMessengerCommand(a,p,v){const m=this.htmlViewMessengerState;if(m===void 0)throw new Error(\`Unknown DIL html-view messenger channel "\${a}"\`);return m.receiveCommand(a,p,v)}receiveDILHtmlViewMessengerEvent(a,p,v){var m;(m=this.htmlViewMessengerState)===null||m===void 0||m.receiveEvent(a,p,v)}nextHtmlViewMessengerChannelId(){return this.getHtmlViewMessengerState().nextChannelId()}sendHtmlViewMessengerCommand(a,p,v){return this.getHtmlViewMessengerState().sendCommand(a,p,v)}emitHtmlViewMessengerEvent(a,p,v){this.getHtmlViewMessengerState().emitEvent(a,p,v)}getHtmlViewMessengerState(){var a;const p=(a=this.htmlViewMessengerState)!==null&&a!==void 0?a:new y.DILRendererHtmlViewMessengerState(this.options.errorReporter);return this.htmlViewMessengerState=p,p}}t.DILRenderer=u})(V,V.exports)),V.exports}var Et=rt(),K={exports:{}},J={exports:{}},X={exports:{}},Ct;function $t(){return Ct||(Ct=1,(function(h,t){h.path="valdi_core/src/utils/Buffer",Object.defineProperty(t,"__esModule",{value:!0}),t.Buffer=void 0;class d{constructor(y){const l=new ArrayBuffer(y);this.array=new DataView(l),this.pos=0}inner(){return this.array.buffer}empty(){return!this.pos}rewind(){this.pos=0}size(){return this.pos}ensureCapacity(y){const l=this.array;if(y<l.byteLength)return l;const r=new ArrayBuffer(Math.max(l.byteLength*2,y));new Uint8Array(r).set(new Uint8Array(l.buffer));const s=new DataView(r);return this.array=s,s}putUint32(y){const l=this.pos;this.ensureCapacity(l+4).setUint32(l,y,!0),this.pos=l+4}putUint32_2(y,l){const r=this.pos,s=this.ensureCapacity(r+8);s.setUint32(r,y,!0),s.setUint32(r+4,l,!0),this.pos=r+8}putUint32_3(y,l,r){const s=this.pos,i=this.ensureCapacity(s+12);i.setUint32(s,y,!0),i.setUint32(s+4,l,!0),i.setUint32(s+8,r,!0),this.pos=s+12}putUint32_4(y,l,r,s){const i=this.pos,u=this.ensureCapacity(i+16);u.setUint32(i,y,!0),u.setUint32(i+4,l,!0),u.setUint32(i+8,r,!0),u.setUint32(i+12,s,!0),this.pos=i+16}putUint32_5(y,l,r,s,i){const u=this.pos,n=this.ensureCapacity(u+20);n.setUint32(u,y,!0),n.setUint32(u+4,l,!0),n.setUint32(u+8,r,!0),n.setUint32(u+12,s,!0),n.setUint32(u+16,i,!0),this.pos=u+20}putFloat64(y){const l=this.pos;this.ensureCapacity(l+8).setFloat64(l,y,!0),this.pos=l+8}}t.Buffer=d})(X,X.exports)),X.exports}var Y={exports:{}},wt;function Wt(){return wt||(wt=1,(function(h,t){h.path="dil_sandbox/src/WeakRef",Object.defineProperty(t,"__esModule",{value:!0}),t.WeakRef=void 0;class d{constructor(l){this.value=l}deref(){return this.value}}const f=globalThis.WeakRef;t.WeakRef=f??d})(Y,Y.exports)),Y.exports}var kt;function Bt(){return kt||(kt=1,(function(h,t){h.path="dil_sandbox/src/DILRenderOperations",Object.defineProperty(t,"__esModule",{value:!0}),t.applyDILRenderOperations=t.DILRenderBufferDelegate=void 0;const d=O(),f=et(),y=$t(),l=Wt(),r=Symbol("openai.valdi.dil.sandboxFunctionId");let s=1;class i{constructor(c){this.elementsMetadata=c,this.attachedStringIndexes=new Map,this.attachedValues=[],this.buffer=new y.Buffer(512),this.functionsById=new Map}beginBatch(){this.buffer.rewind(),this.attachedValues=[],this.attachedStringIndexes.clear()}finishBatch(){const c={descriptor:this.buffer.inner(),descriptorSize:this.buffer.size(),attachedValues:this.attachedValues};return this.buffer.rewind(),this.attachedValues=[],this.attachedStringIndexes.clear(),c}discardBatch(){this.buffer.rewind(),this.attachedValues=[],this.attachedStringIndexes.clear()}invokeFunction(c,R){var I;const x=(I=this.functionsById.get(c))===null||I===void 0?void 0:I.deref();if(x===void 0)throw new Error(\`Unknown DIL sandbox function \${c}.\`);return x(...R)}dispose(){this.discardBatch(),this.functionsById.clear()}onElementNodeCreated(c,R){this.writeOperation(1),this.buffer.putUint32_2(c,R)}onTextNodeCreated(c,R){this.writeOperation(2),this.buffer.putUint32_2(c,this.attach(R))}onNodeDestroyed(c){this.writeOperation(3),this.buffer.putUint32(c)}onNodeMoved(c,R,I){this.writeOperation(4),this.buffer.putUint32_3(c,R,I)}onNodePropChanged(c,R,I){this.writeOperation(5),this.buffer.putUint32_2(c,this.attach(R)),this.writeValue(I)}onNodeOpaqueChildrenChanged(c,R){this.writeOperation(7),this.buffer.putUint32(c),this.writeValue(R)}onTextNodeChanged(c,R){this.writeOperation(6),this.buffer.putUint32_2(c,this.attach(R))}writeOperation(c){this.buffer.putUint32(c)}attach(c){if(typeof c=="string"){const I=this.attachedStringIndexes.get(c);if(I!==void 0)return I;const x=this.attachedValues.length;return this.attachedValues.push(c),this.attachedStringIndexes.set(c,x),x}const R=this.attachedValues.length;return this.attachedValues.push(c),R}writeValue(c){if(c===void 0){this.buffer.putUint32(0);return}if(c===null){this.buffer.putUint32(1);return}if(c===!1){this.buffer.putUint32(2);return}if(c===!0){this.buffer.putUint32(3);return}if(typeof c=="number"){this.buffer.putUint32(4),this.buffer.putFloat64(c);return}if(typeof c=="string"){this.buffer.putUint32_2(5,this.attach(c));return}if(typeof c=="function"){this.buffer.putUint32_2(8,this.getFunctionId(c));return}if(Array.isArray(c)){this.buffer.putUint32_2(6,c.length);for(const R of c)this.writeValue(R);return}if((0,d.isDILRuntimeElement)(c)){this.writeRuntimeElement(c);return}if(a(c)){const R=(0,f.getDILHtmlViewMessengerHost)(c);if(R!==void 0){this.buffer.putUint32_2(12,this.attach(R.channelId));return}const I=Object.keys(c);this.buffer.putUint32_2(7,I.length);for(const x of I)this.buffer.putUint32(this.attach(x)),this.writeValue(c[x]);return}this.buffer.putUint32_2(11,this.attach(c))}writeRuntimeElement(c){const R=c.type;if(R===d.DIL_FRAGMENT||typeof R=="function"){this.buffer.putUint32(10),this.writeValue(c.children);return}const I=this.elementsMetadata[R];if(I===void 0)throw new Error(\`Unknown DIL element type "\${R}".\`);this.buffer.putUint32_2(9,I.typeId),this.writeValue(c.props),this.writeValue(c.children)}getFunctionId(c){const R=c;let I=R[r];return I===void 0&&(I=s++,R[r]=I),this.functionsById.set(I,new l.WeakRef(c)),I}}t.DILRenderBufferDelegate=i;function u(m,c,R){new n(m,c,R).apply()}t.applyDILRenderOperations=u;class n{constructor(c,R,I){this.encoded=c,this.consumer=R,this.valueResolver=I,this.offset=0;const x=c.descriptorSize;if(!Number.isInteger(x)||x<0||x>c.descriptor.byteLength||x%4!==0)throw new Error("Invalid DIL render operations descriptor size.");this.view=new DataView(c.descriptor,0,x)}apply(){for(;this.offset<this.view.byteLength;){const c=this.readUint32();switch(c){case 1:{const R=this.readUint32(),I=this.readUint32();this.consumer.onElementNodeCreated(R,I);break}case 2:{const R=this.readUint32(),I=this.readString();this.consumer.onTextNodeCreated(R,I);break}case 3:this.consumer.onNodeDestroyed(this.readUint32());break;case 4:this.consumer.onNodeMoved(this.readUint32(),this.readUint32(),this.readUint32());break;case 5:this.consumer.onNodePropChanged(this.readUint32(),this.readString(),this.readValue());break;case 6:{const R=this.readUint32(),I=this.readString();this.consumer.onTextNodeChanged(R,I);break}case 7:{const R=this.readUint32(),I=this.readValue();if(!p(I))throw new Error("Invalid DIL render operation opaque children.");this.consumer.onNodeOpaqueChildrenChanged(R,I);break}default:throw new Error(\`Unknown DIL render operation kind \${c}.\`)}}}readValue(){const c=this.readUint32();switch(c){case 0:return;case 1:return null;case 2:return!1;case 3:return!0;case 4:return this.readFloat64();case 5:return this.readString();case 6:{const R=this.readUint32(),I=[];for(let x=0;x<R;x++)I.push(this.readValue());return I}case 7:{const R=this.readUint32(),I={};for(let x=0;x<R;x++)I[this.readString()]=this.readValue();return I}case 8:return this.valueResolver.resolveFunction(this.readUint32());case 9:{const R=this.valueResolver.resolveType(this.readUint32()),I=this.readValue();if(I!==void 0&&!a(I))throw new Error("Invalid DIL render operation element props.");const x=this.readValue();if(!Array.isArray(x))throw new Error("Invalid DIL render operation element children.");return(0,d.createDilElement)(R,I,x)}case 10:{const R=this.readValue();if(!Array.isArray(R))throw new Error("Invalid DIL render operation fragment children.");return(0,d.createDilElement)(d.DIL_FRAGMENT,void 0,R)}case 11:return this.readAttached();case 12:return this.valueResolver.resolveHtmlViewMessenger(this.readString());default:throw new Error(\`Unknown DIL render value kind \${c}.\`)}}readString(){const c=this.readAttached();if(typeof c!="string")throw new Error("Invalid DIL render operation string value.");return c}readAttached(){const c=this.readUint32();if(c>=this.encoded.attachedValues.length)throw new Error("Invalid DIL render operation attached value index.");return this.encoded.attachedValues[c]}readUint32(){if(this.offset+4>this.view.byteLength)throw new Error("Truncated DIL render operations descriptor.");const c=this.view.getUint32(this.offset,!0);return this.offset+=4,c}readFloat64(){if(this.offset+8>this.view.byteLength)throw new Error("Truncated DIL render operations descriptor.");const c=this.view.getFloat64(this.offset,!0);return this.offset+=8,c}}function a(m){if(m===null||typeof m!="object"||(0,d.isDILRuntimeElement)(m))return!1;const c=Object.getPrototypeOf(m);return c===null||c===Object.prototype}function p(m){if(!Array.isArray(m))return!1;for(const c of m)if(typeof c!="string"&&typeof c!="number"&&!v(c))return!1;return!0}function v(m){return a(m)?typeof m.type=="string"&&a(m.props)&&p(m.children):!1}})(J,J.exports)),J.exports}var Dt;function qt(){return Dt||(Dt=1,(function(h,t){h.path="dil_sandbox/src/DILSandboxRuntime",Object.defineProperty(t,"__esModule",{value:!0}),t.DILSandboxRuntime=void 0;const d=rt(),f=Bt();class y{constructor(s,i,u,n,a,p,v){this.requestRender=i,this.errors=[],this.pendingFlushes=[],this.delegate=new f.DILRenderBufferDelegate(s),this.renderer=new d.DILRenderer({delegate:this.delegate,elementsMetadata:s,errorReporter:this,genUI:p,scheduler:this,trace:u,stateChangeHandler:v}),this.context=this.renderer.createRenderContext(n,a)}reportError(s){this.errors.push(s)}scheduleFlush(s){this.pendingFlushes.push(s)}scheduleRender(){this.requestRender()}updateSource(s){return this.errors.length=0,this.context.updateSource(s),this.takeErrors()}setStateSnapshot(s){return this.context.setStateSnapshot(s)}commitStateSnapshot(){this.context.commitStateSnapshot()}render(s){return{encoded:this.renderOnce(s),errors:this.takeErrors()}}renderSourceUpdate(s){let i=this.renderOnce(s),u=this.takeErrors();return i!==void 0?{encoded:i,errors:u}:(this.context.clearRenderedRoot(),i=this.renderOnce(s),u=l(u,this.takeErrors()),{encoded:i,errors:u})}invokeFunction(s,i){return this.delegate.invokeFunction(s,i)}registerHtmlViewMessengerTransport(s,i){return this.renderer.registerDILHtmlViewMessengerTransport(s,i)}receiveHtmlViewMessengerCommand(s,i,u){return this.renderer.receiveDILHtmlViewMessengerCommand(s,i,u)}receiveHtmlViewMessengerEvent(s,i,u){this.renderer.receiveDILHtmlViewMessengerEvent(s,i,u)}flush(){if(this.pendingFlushes.length===0)return;this.errors.length=0;const s=this.pendingFlushes.splice(0);for(const i of s)i();return this.takeErrors()}dispose(){return this.errors.length=0,this.context.dispose(),this.delegate.dispose(),l(this.takeErrors(),this.flush())}renderOnce(s){if(this.errors.length=0,this.delegate.beginBatch(),this.context.render(s.appData,s.theme,s.activeBreakpoints,{constants:s.constants,streamingAnimation:d.DILStreamingAnimation.Disabled}),this.context.didLastRenderFail()){this.delegate.discardBatch();return}return this.delegate.finishBatch()}takeErrors(){if(this.errors.length!==0)return this.errors.splice(0)}}t.DILSandboxRuntime=y;function l(r,s){return s===void 0?r:r===void 0?s.slice():(r.push(...s),r)}})(K,K.exports)),K.exports}var Kt=qt(),Z={exports:{}},Q={exports:{}},Pt;function Jt(){return Pt||(Pt=1,(function(h,t){h.path="dil_sandbox/src/DILComponentSources.generated",Object.defineProperty(t,"__esModule",{value:!0}),t.DIL_COMPONENT_SOURCES=void 0,t.DIL_COMPONENT_SOURCES=Object.freeze({OpGenuiResolvedComponentBoundary:\`(() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region internal/ResolvedComponentBoundary.dil.tsx
+	function ResolvedComponentBoundary({ Component, componentName, componentProps }) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (componentProps.__state !== void 0) return /* @__PURE__ */ __dil.jsx(Component, componentProps);
+		const result = opGenui?.componentResults?.[componentDataKey(componentName, componentProps)];
+		const delegatesFailedResultToComponent = !opGenui?.showFailedComponents && (componentName === "AsyncImage" || componentName === "AsyncImageGroup");
+		if (isComponentResultEnvelope(result) && result.status === "failed" && !delegatesFailedResultToComponent && !((componentName === "Link" || componentName === "LinkCard") && typeof componentProps.title === "string" && componentProps.title.length > 0 && typeof componentProps.url === "string" && componentProps.url.length > 0)) {
+			if (componentProps.fallback != null) return componentProps.fallback;
+			return opGenui?.showFailedComponents ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "danger",
+				size: "sm"
+			}, \\\`\\\${componentName}: \\\${result.code}\\\`) : null;
+		}
+		return /* @__PURE__ */ __dil.jsx(Component, componentProps);
+	}
+
+//#endregion
+return ResolvedComponentBoundary;
+})();
+return __dilDefaultExport;
+})()\`,AsyncImage:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "AsyncImage", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function hasImageSource(image) {
+		return Boolean(image?.content_url || image?.thumbnail_url);
+	}
+	function normalizedAspectRatio(value) {
+		return value?.replace(":", " / ");
+	}
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region AsyncImage.dil.tsx
+/** Mirror v1: only pixel max-widths supply a non-shrinking preferred width. */
+	function hasPreferredPixelWidth(value) {
+		if (typeof value === "number") return Number.isFinite(value) && value >= 0;
+		return typeof value === "string" && /^\\\\d+(?:\\\\.\\\\d+)?(?:px)?$/.test(value.trim());
+	}
+	function normalizedDimension(value) {
+		return typeof value === "string" && /^\\\\d+(?:\\\\.\\\\d+)?$/.test(value.trim()) ? Number(value) : value;
+	}
+	/** Mirror the v1 intrinsic frame while image resolution is still pending. */
+	function unresolvedAspectWidth(maxHeight, aspectRatio) {
+		return \\\`calc(\\\${typeof maxHeight === "number" ? \\\`\\\${maxHeight}px\\\` : /^\\\\d+(?:\\\\.\\\\d+)?$/.test(maxHeight.trim()) ? \\\`\\\${maxHeight.trim()}px\\\` : maxHeight.trim()} * \\\${normalizedAspectRatio(aspectRatio)})\\\`;
+	}
+	function containsSource(value, src) {
+		if (value === src) return true;
+		if (value === null || typeof value !== "object") return false;
+		return Object.values(value).some((child) => containsSource(child, src));
+	}
+	function directImages(props, sourceAllowed) {
+		if (!sourceAllowed || !props.src || props.query != null || props.ref != null) return [];
+		return [{
+			url: props.src,
+			content_url: props.src,
+			thumbnail_url: props.src,
+			title: props.alt ?? ""
+		}];
+	}
+	function ImageContent(props) {
+		return /* @__PURE__ */ __dil.jsx("search-image", props);
+	}
+	function AsyncImage(props) {
+		const sourceAllowed = DIL.useAppData((appData) => Boolean(props.src) && containsSource(appData.opGenui?.modelDataBindings, props.src));
+		const resolved = useResolvedComponentResult("AsyncImage", props);
+		const isDirect = "src" in props;
+		const state = isDirect ? void 0 : resolved.state;
+		const resolutionComplete = isDirect || resolved.resolutionComplete;
+		const isLoading = state?.is_loading ?? !resolutionComplete;
+		const images = isDirect ? directImages(props, sourceAllowed) : state?.images ?? [];
+		const image = images[0];
+		const hasImage = hasImageSource(image);
+		const needsLocalSizing = state == null;
+		const frameMaxWidth = state?.frame_max_width ?? normalizedDimension(props.maxWidth) ?? (needsLocalSizing ? "100%" : void 0);
+		const frameAspectRatio = state?.frame_aspect_ratio ?? props.aspectRatio;
+		const presentation = state?.presentation;
+		const hasAuthoredDimensions = props.width != null || props.height != null;
+		const defaultMaxHeight = needsLocalSizing && !hasAuthoredDimensions ? normalizedDimension(props.maxHeight) ?? 220 : void 0;
+		const unresolvedSize = frameAspectRatio == null ? defaultMaxHeight : void 0;
+		const unresolvedWidth = defaultMaxHeight != null && frameAspectRatio != null ? unresolvedAspectWidth(defaultMaxHeight, frameAspectRatio) : unresolvedSize;
+		const fallbackElement = props.fallback ?? /* @__PURE__ */ __dil.jsx("box", {
+			align: "center",
+			ariaLabel: "Image unavailable",
+			background: "surface-tertiary",
+			height: "100%",
+			justify: "center",
+			role: "img",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("icon", {
+			color: "tertiary",
+			name: "image-square",
+			size: "lg"
+		}));
+		const imageElement = /* @__PURE__ */ __dil.jsx(ImageContent, {
+			key: image?.content_url ?? image?.thumbnail_url ?? void 0,
+			alt: props.alt ?? image?.title ?? "",
+			aspectRatio: normalizedAspectRatio(frameAspectRatio),
+			fallback: fallbackElement,
+			fit: props.fit ?? state?.image_fit ?? (isDirect && frameAspectRatio == null ? "contain" : "cover"),
+			height: "100%",
+			hideOnFailure: true,
+			radius: "none",
+			searchImage: image,
+			width: "100%"
+		});
+		return /* @__PURE__ */ __dil.jsx("box", {
+			ariaLabel: isLoading ? "Loading image" : void 0,
+			aspectRatio: normalizedAspectRatio(frameAspectRatio),
+			background: "surface-tertiary",
+			border: (presentation?.frame ?? props.frame ?? true) && !isLoading && hasImage ? {
+				color: "subtle",
+				size: 1
+			} : void 0,
+			clip: true,
+			flex: hasPreferredPixelWidth(frameMaxWidth) ? "0 0 auto" : void 0,
+			height: state?.frame_height ?? normalizedDimension(props.height) ?? (props.width != null || frameAspectRatio != null ? void 0 : unresolvedSize ?? "100%"),
+			maxHeight: state?.max_height !== void 0 ? state.max_height ?? void 0 : normalizedDimension(props.maxHeight) ?? defaultMaxHeight,
+			maxWidth: frameMaxWidth,
+			minHeight: presentation?.min_height ?? props.minHeight,
+			minWidth: presentation?.min_width ?? props.minWidth ?? 0,
+			radius: presentation?.radius ?? props.radius ?? "xl",
+			role: isLoading ? "status" : void 0,
+			width: state?.frame_width ?? normalizedDimension(props.width) ?? unresolvedWidth ?? "100%"
+		}, isLoading ? imageElement : !hasImage ? fallbackElement : props.onClickAction === null ? imageElement : /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: image?.title ? \\\`Open \\\${image.title}\\\` : "Open image",
+			background: "transparent",
+			height: "100%",
+			onClick: () => props.onClickAction ? GenUI.dispatchAction(props.onClickAction) : state?.default_on_click_action ? GenUI.dispatchAction(state.default_on_click_action) : GenUI.openImageLightbox(images, 0),
+			radius: "none",
+			width: "100%"
+		}, imageElement));
+	}
+
+//#endregion
+return AsyncImage;
+})();
+return __dilDefaultExport;
+})())\`,AsyncImageGroup:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "AsyncImageGroup", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function hasImageSource(image) {
+		return Boolean(image?.content_url || image?.thumbnail_url);
+	}
+	function normalizedAspectRatio(value) {
+		return value?.replace(":", " / ");
+	}
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region AsyncImageGroup.dil.tsx
+/** Display the complete gallery count on the final visible desktop tile. */
+	function ImageCount({ count }) {
+		return /* @__PURE__ */ __dil.jsx("col", {
+			align: "end",
+			ariaHidden: true,
+			height: "100%",
+			justify: "end",
+			padding: {
+				bottom: 2.5,
+				right: 2.5
+			},
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			background: "rgba(0, 0, 0, 0.4)",
+			gap: .5,
+			padding: {
+				bottom: 1,
+				left: 1.5,
+				right: 2,
+				top: 1
+			},
+			radius: "full",
+			width: "fit-content"
+		}, /* @__PURE__ */ __dil.jsx("icon", {
+			color: "white",
+			name: "images",
+			size: "xs"
+		}), /* @__PURE__ */ __dil.jsx("text", {
+			color: "white",
+			inline: true,
+			size: "xs",
+			weight: "semibold"
+		}, count)));
+	}
+	const PLACEHOLDER_INDEXES = [
+		0,
+		1,
+		2
+	];
+	function ImageFailure() {
+		return /* @__PURE__ */ __dil.jsx("box", {
+			align: "center",
+			ariaLabel: "Image unavailable",
+			background: "surface-tertiary",
+			height: "100%",
+			justify: "center",
+			role: "img",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("icon", {
+			color: "tertiary",
+			name: "image-square",
+			size: "lg"
+		}));
+	}
+	function ImageFallbackFrame({ aspectRatio, children, itemHeight, itemWidth }) {
+		return /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: normalizedAspectRatio(aspectRatio ?? "5:4"),
+			clip: true,
+			height: itemHeight,
+			minWidth: itemWidth,
+			radius: "xl",
+			width: itemWidth
+		}, children);
+	}
+	/** Keep one loading surface mounted while its resolved image source arrives. */
+	function GroupImageTile({ aspectRatio, failed = false, fallback, flex, height, image, images, index, minWidth, radius, showCount = false, width }) {
+		return /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: normalizedAspectRatio(aspectRatio),
+			background: "surface-tertiary",
+			clip: true,
+			flex,
+			height,
+			minWidth,
+			radius,
+			width
+		}, failed ? /* @__PURE__ */ __dil.jsx(ImageFailure, null) : /* @__PURE__ */ __dil.jsx("search-image", {
+			alt: image?.title ?? "",
+			aspectRatio: normalizedAspectRatio(aspectRatio),
+			fallback,
+			fit: "cover",
+			frame: true,
+			height: "100%",
+			hideOnFailure: true,
+			radius,
+			searchImage: image,
+			width: "100%"
+		}, image ? /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: image.title ? \\\`Open \\\${image.title}\\\` : "Open image",
+			background: "transparent",
+			height: "100%",
+			onClick: () => GenUI.openImageLightbox(images, index),
+			radius: "none",
+			width: "100%"
+		}, showCount ? /* @__PURE__ */ __dil.jsx(ImageCount, { count: images.length }) : null) : null));
+	}
+	/** Render the v1-compatible responsive image strip, preserving loading and fallback states. */
+	function AsyncImageGroup(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("AsyncImageGroup", props);
+		const isSm = DIL.useBreakpoint("sm");
+		const layout = state?.layout ?? props.layout ?? "carousel";
+		const isDesktopCarousel = layout === "carousel" && isSm;
+		const images = (state?.images ?? []).filter(hasImageSource);
+		const isLoading = state?.is_loading ?? !resolutionComplete;
+		const failed = !isLoading && images.length === 0;
+		const aspectRatio = state?.aspect_ratio ?? props.aspectRatio ?? "5:4";
+		const itemHeight = state?.item_height;
+		const itemWidth = state?.item_width;
+		if (failed && props.fallback) return /* @__PURE__ */ __dil.jsx(ImageFallbackFrame, {
+			aspectRatio,
+			itemHeight,
+			itemWidth
+		}, props.fallback);
+		const fallbackElement = props.fallback ?? /* @__PURE__ */ __dil.jsx(ImageFailure, null);
+		if (layout === "bento" && (isLoading || failed || images.length >= 3)) return /* @__PURE__ */ __dil.jsx("row", {
+			ariaLabel: isLoading ? "Loading images" : void 0,
+			aspectRatio: "363 / 200",
+			gap: .5,
+			maxWidth: 768,
+			minHeight: 0,
+			role: isLoading ? "status" : void 0,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx(GroupImageTile, {
+			failed,
+			fallback: fallbackElement,
+			flex: 1,
+			height: "100%",
+			image: images[0],
+			images,
+			index: 0,
+			radius: {
+				bottomLeft: "3xl",
+				topLeft: "3xl"
+			},
+			width: "100%"
+		}), /* @__PURE__ */ __dil.jsx("col", {
+			gap: .5,
+			width: "40%"
+		}, [1, 2].map((index) => /* @__PURE__ */ __dil.jsx(GroupImageTile, {
+			failed,
+			fallback: fallbackElement,
+			flex: 1,
+			height: "100%",
+			image: images[index],
+			images,
+			index,
+			key: \\\`async-image-group-tile:\\\${index}\\\`,
+			radius: index === 1 ? { topRight: "3xl" } : { bottomRight: "3xl" },
+			showCount: index === 2 && images.length > 3,
+			width: "100%"
+		}))));
+		if (isDesktopCarousel && (isLoading || failed || images.length >= 3)) return /* @__PURE__ */ __dil.jsx("row", {
+			ariaLabel: isLoading ? "Loading images" : void 0,
+			gap: 2,
+			maxWidth: "100%",
+			minWidth: 0,
+			role: isLoading ? "status" : void 0,
+			width: 768
+		}, PLACEHOLDER_INDEXES.map((index) => /* @__PURE__ */ __dil.jsx(GroupImageTile, {
+			aspectRatio,
+			failed,
+			fallback: fallbackElement,
+			flex: "1 1 0%",
+			image: images[index],
+			images,
+			index,
+			key: \\\`async-image-group-tile:\\\${index}\\\`,
+			minWidth: 0,
+			radius: "xl",
+			showCount: index === 2 && images.length > 3,
+			width: "100%"
+		})));
+		const scrollImages = isLoading || failed ? PLACEHOLDER_INDEXES.map(() => void 0) : images;
+		return /* @__PURE__ */ __dil.jsx("box", {
+			ariaLabel: isLoading ? "Loading images" : void 0,
+			role: isLoading ? "status" : void 0,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("carousel", {
+			flush: true,
+			gap: 2,
+			showArrows: false,
+			snap: "none"
+		}, scrollImages.map((image, index) => /* @__PURE__ */ __dil.jsx("carousel-item", {
+			height: itemHeight,
+			key: \\\`async-image-group-tile:\\\${index}\\\`,
+			minWidth: itemWidth,
+			width: itemWidth ?? (isLoading || failed ? 140 : void 0)
+		}, /* @__PURE__ */ __dil.jsx(GroupImageTile, {
+			aspectRatio,
+			failed,
+			fallback: fallbackElement,
+			height: itemHeight,
+			image,
+			images,
+			index,
+			radius: "xl",
+			width: "100%"
+		})))));
+	}
+
+//#endregion
+return AsyncImageGroup;
+})();
+return __dilDefaultExport;
+})())\`,AsyncVideo:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "AsyncVideo", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region AsyncVideo.dil.tsx
+	function AsyncVideo(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("AsyncVideo", props);
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading video" });
+		const video = state.video;
+		if (!video) return null;
+		return /* @__PURE__ */ __dil.jsx("box", {
+			background: "surface-secondary",
+			clip: true,
+			maxWidth: "100%",
+			radius: "3xl",
+			width: "640px"
+		}, /* @__PURE__ */ __dil.jsx("youtube", {
+			aspectRatio: "16 / 9",
+			maxWidth: "100%",
+			title: video.title,
+			videoId: video.video_id,
+			width: "100%"
+		}));
+	}
+
+//#endregion
+return AsyncVideo;
+})();
+return __dilDefaultExport;
+})())\`,Citation:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "Citation", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region Cite.dil.tsx
+	function clampedIndex(index, itemCount) {
+		if (typeof index === "number" && Number.isInteger(index) && index >= 0 && index < itemCount) return index;
+		return 0;
+	}
+	function ResolvedCite({ activeIndex: serverActiveIndex, items, sourcesTitle }) {
+		const initialActiveIndex = clampedIndex(serverActiveIndex, items.length);
+		const [activeIndex, setActiveIndex] = DIL.useState(initialActiveIndex);
+		const [badgeHovered, setBadgeHovered] = DIL.useState(false);
+		const isSm = DIL.useBreakpoint("sm");
+		const isMobile = DIL.useIsMobile();
+		DIL.useEffect(() => {
+			setActiveIndex(initialActiveIndex);
+		}, [serverActiveIndex, items.length]);
+		const activeItem = items[clampedIndex(activeIndex, items.length)];
+		const url = activeItem.url ?? "";
+		const title = activeItem.title ?? "";
+		const metadataLabel = activeItem.metadata_label ?? "";
+		const snippet = activeItem.snippet ?? "";
+		const hasUrl = url !== "";
+		const hasTitle = title !== "";
+		const hasMetadata = metadataLabel !== "";
+		const hasSnippet = snippet !== "";
+		const hasThumbnail = Boolean(activeItem.thumbnail_url);
+		const showPopover = items.length > 1 || hasTitle || hasMetadata || hasSnippet || hasThumbnail;
+		const isInteractive = showPopover || hasUrl;
+		const sourceLabel = activeItem.source_label ?? activeItem.title ?? "Source";
+		const badge = isMobile ? /* @__PURE__ */ __dil.jsx("badge", {
+			color: "secondary",
+			size: "sm",
+			variant: "soft"
+		}, hasUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+			inline: true,
+			size: 12,
+			url
+		}) : null, /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			size: "xs"
+		}, sourceLabel), items.length > 1 ? /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			size: "xs"
+		}, "+", items.length - 1) : null) : /* @__PURE__ */ __dil.jsx("badge", {
+			color: isInteractive && badgeHovered ? {
+				light: "#e8e8e8",
+				dark: "gray-300"
+			} : {
+				light: "gray-75",
+				dark: "gray-400"
+			},
+			onHover: isInteractive ? setBadgeHovered : void 0,
+			padding: {
+				left: 1,
+				right: 1.5,
+				y: 1
+			},
+			size: "sm",
+			variant: "soft",
+			weight: "normal"
+		}, hasUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+			size: 12,
+			url
+		}) : null, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: .75
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			inline: true,
+			size: "2xs"
+		}, sourceLabel), items.length > 1 ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "tertiary",
+			inline: true,
+			size: "2xs"
+		}, "+", items.length - 1) : null));
+		if (!showPopover) return hasUrl ? /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`Open \\\${sourceLabel}\\\`,
+			inline: true,
+			onClick: () => GenUI.openUrl(url)
+		}, badge) : badge;
+		return /* @__PURE__ */ __dil.jsx("popover", {
+			hoverOpenDelay: 80,
+			showOnHover: true
+		}, /* @__PURE__ */ __dil.jsx("popover-trigger", { onClick: () => !isMobile && isSm && hasUrl ? GenUI.openUrl(url) : void 0 }, badge), /* @__PURE__ */ __dil.jsx("popover-content", {
+			align: "start",
+			side: "bottom",
+			sideOffset: 8
+		}, isMobile ? /* @__PURE__ */ __dil.jsx(MobileCitationSources, {
+			items,
+			title: sourcesTitle
+		}) : /* @__PURE__ */ __dil.jsx(DesktopCitationSources, { items })));
+	}
+	function DesktopCitationSources({ items }) {
+		return /* @__PURE__ */ __dil.jsx("col", {
+			gap: 0,
+			maxHeight: 320,
+			maxWidth: "100%",
+			padding: {
+				bottom: 2,
+				top: 2,
+				x: 5
+			},
+			scrollable: true,
+			width: 384
+		}, items.map((item, index) => {
+			const itemUrl = item.url ?? "";
+			const itemSourceLabel = item.source_label ?? item.title ?? "Source";
+			const itemTitle = item.title ?? "";
+			const itemMetadata = item.metadata_label ?? "";
+			const itemSnippet = item.snippet ?? "";
+			const itemDetail = \\\`\\\${itemMetadata}\\\${itemMetadata && itemSnippet ? " — " : ""}\\\${itemSnippet}\\\`;
+			const source = /* @__PURE__ */ __dil.jsx("col", {
+				border: index === 0 ? void 0 : { top: {
+					color: "default",
+					size: 1
+				} },
+				gap: 1.5,
+				padding: { y: 3 },
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 2,
+				minWidth: 0,
+				width: "100%"
+			}, itemUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+				size: 16,
+				url: itemUrl
+			}) : null, /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				inline: true,
+				maxLines: 1,
+				size: "xs",
+				truncate: true
+			}, itemSourceLabel)), itemTitle ? /* @__PURE__ */ __dil.jsx("text", {
+				maxLines: 2,
+				size: "sm",
+				weight: "medium"
+			}, itemTitle) : null, itemDetail || item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "start",
+				gap: 4,
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("col", {
+				flex: 1,
+				minWidth: 0
+			}, itemDetail ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				maxLines: 3,
+				size: "sm"
+			}, itemDetail) : null), item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("image", {
+				alt: "",
+				fit: "cover",
+				height: 56,
+				hideOnFailure: true,
+				radius: "xl",
+				src: item.thumbnail_url,
+				width: 56
+			}) : null) : null);
+			return itemUrl ? /* @__PURE__ */ __dil.jsx("pressable", {
+				ariaLabel: \\\`Open \\\${itemSourceLabel}\\\`,
+				key: \\\`\\\${itemUrl}:\\\${index}\\\`,
+				onClick: () => GenUI.openUrl(itemUrl),
+				width: "100%"
+			}, source) : /* @__PURE__ */ __dil.jsx("col", {
+				key: \\\`source:\\\${index}\\\`,
+				width: "100%"
+			}, source);
+		}));
+	}
+	function MobileCitationSources({ items, title }) {
+		return /* @__PURE__ */ __dil.jsx("col", {
+			gap: 0,
+			maxHeight: 640,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			height: 64,
+			justify: "center",
+			padding: { x: 14 },
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			size: "lg",
+			strong: true
+		}, title ?? \\\`\\\${items.length} \\\${items.length === 1 ? "Source" : "Sources"}\\\`)), /* @__PURE__ */ __dil.jsx("col", {
+			gap: 0,
+			maxHeight: 560,
+			padding: {
+				bottom: 2,
+				x: 5
+			},
+			scrollable: true,
+			width: "100%"
+		}, items.map((item, index) => {
+			const itemUrl = item.url ?? "";
+			const itemSourceLabel = item.source_label ?? item.title ?? "Source";
+			const itemTitle = item.title ?? "";
+			const itemMetadata = item.metadata_label ?? "";
+			const itemSnippet = item.snippet ?? "";
+			const itemDetail = \\\`\\\${itemMetadata}\\\${itemMetadata && itemSnippet ? " — " : ""}\\\${itemSnippet}\\\`;
+			const source = /* @__PURE__ */ __dil.jsx("col", {
+				border: index === 0 ? void 0 : { top: {
+					color: "default",
+					size: 1
+				} },
+				gap: 3,
+				padding: { y: 5 },
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 2,
+				minWidth: 0,
+				width: "100%"
+			}, itemUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+				size: 16,
+				url: itemUrl
+			}) : null, /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				inline: true,
+				maxLines: 1,
+				size: "xs",
+				truncate: true
+			}, itemSourceLabel)), itemTitle ? /* @__PURE__ */ __dil.jsx("text", {
+				maxLines: 2,
+				size: "sm",
+				weight: "medium"
+			}, itemTitle) : null, itemDetail || item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "start",
+				gap: 4,
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("col", {
+				flex: 1,
+				minWidth: 0
+			}, itemDetail ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				maxLines: 3,
+				size: "sm"
+			}, itemDetail) : null), item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("image", {
+				alt: "",
+				fit: "cover",
+				height: 56,
+				hideOnFailure: true,
+				radius: "xl",
+				src: item.thumbnail_url,
+				width: 56
+			}) : null) : null);
+			return itemUrl ? /* @__PURE__ */ __dil.jsx("pressable", {
+				ariaLabel: \\\`Open \\\${itemSourceLabel}\\\`,
+				key: \\\`\\\${itemUrl}:\\\${index}\\\`,
+				onClick: () => GenUI.openUrl(itemUrl),
+				width: "100%"
+			}, source) : /* @__PURE__ */ __dil.jsx("col", {
+				key: \\\`source:\\\${index}\\\`,
+				width: "100%"
+			}, source);
+		})));
+	}
+	function Cite(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("Cite", props);
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading citations" });
+		const items = state.items ?? [];
+		if (!items.length) return null;
+		return /* @__PURE__ */ __dil.jsx(ResolvedCite, {
+			activeIndex: state.active_index,
+			items,
+			sourcesTitle: state.sources_title
+		});
+	}
+
+//#endregion
+//#region Citation.dil.tsx
+	function Citation(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("Citation", props);
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading citation" });
+		return /* @__PURE__ */ __dil.jsx(Cite, {
+			...props,
+			__state: state
+		});
+	}
+
+//#endregion
+return Citation;
+})();
+return __dilDefaultExport;
+})())\`,Cite:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "Cite", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region Cite.dil.tsx
+	function clampedIndex(index, itemCount) {
+		if (typeof index === "number" && Number.isInteger(index) && index >= 0 && index < itemCount) return index;
+		return 0;
+	}
+	function ResolvedCite({ activeIndex: serverActiveIndex, items, sourcesTitle }) {
+		const initialActiveIndex = clampedIndex(serverActiveIndex, items.length);
+		const [activeIndex, setActiveIndex] = DIL.useState(initialActiveIndex);
+		const [badgeHovered, setBadgeHovered] = DIL.useState(false);
+		const isSm = DIL.useBreakpoint("sm");
+		const isMobile = DIL.useIsMobile();
+		DIL.useEffect(() => {
+			setActiveIndex(initialActiveIndex);
+		}, [serverActiveIndex, items.length]);
+		const activeItem = items[clampedIndex(activeIndex, items.length)];
+		const url = activeItem.url ?? "";
+		const title = activeItem.title ?? "";
+		const metadataLabel = activeItem.metadata_label ?? "";
+		const snippet = activeItem.snippet ?? "";
+		const hasUrl = url !== "";
+		const hasTitle = title !== "";
+		const hasMetadata = metadataLabel !== "";
+		const hasSnippet = snippet !== "";
+		const hasThumbnail = Boolean(activeItem.thumbnail_url);
+		const showPopover = items.length > 1 || hasTitle || hasMetadata || hasSnippet || hasThumbnail;
+		const isInteractive = showPopover || hasUrl;
+		const sourceLabel = activeItem.source_label ?? activeItem.title ?? "Source";
+		const badge = isMobile ? /* @__PURE__ */ __dil.jsx("badge", {
+			color: "secondary",
+			size: "sm",
+			variant: "soft"
+		}, hasUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+			inline: true,
+			size: 12,
+			url
+		}) : null, /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			size: "xs"
+		}, sourceLabel), items.length > 1 ? /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			size: "xs"
+		}, "+", items.length - 1) : null) : /* @__PURE__ */ __dil.jsx("badge", {
+			color: isInteractive && badgeHovered ? {
+				light: "#e8e8e8",
+				dark: "gray-300"
+			} : {
+				light: "gray-75",
+				dark: "gray-400"
+			},
+			onHover: isInteractive ? setBadgeHovered : void 0,
+			padding: {
+				left: 1,
+				right: 1.5,
+				y: 1
+			},
+			size: "sm",
+			variant: "soft",
+			weight: "normal"
+		}, hasUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+			size: 12,
+			url
+		}) : null, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: .75
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			inline: true,
+			size: "2xs"
+		}, sourceLabel), items.length > 1 ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "tertiary",
+			inline: true,
+			size: "2xs"
+		}, "+", items.length - 1) : null));
+		if (!showPopover) return hasUrl ? /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`Open \\\${sourceLabel}\\\`,
+			inline: true,
+			onClick: () => GenUI.openUrl(url)
+		}, badge) : badge;
+		return /* @__PURE__ */ __dil.jsx("popover", {
+			hoverOpenDelay: 80,
+			showOnHover: true
+		}, /* @__PURE__ */ __dil.jsx("popover-trigger", { onClick: () => !isMobile && isSm && hasUrl ? GenUI.openUrl(url) : void 0 }, badge), /* @__PURE__ */ __dil.jsx("popover-content", {
+			align: "start",
+			side: "bottom",
+			sideOffset: 8
+		}, isMobile ? /* @__PURE__ */ __dil.jsx(MobileCitationSources, {
+			items,
+			title: sourcesTitle
+		}) : /* @__PURE__ */ __dil.jsx(DesktopCitationSources, { items })));
+	}
+	function DesktopCitationSources({ items }) {
+		return /* @__PURE__ */ __dil.jsx("col", {
+			gap: 0,
+			maxHeight: 320,
+			maxWidth: "100%",
+			padding: {
+				bottom: 2,
+				top: 2,
+				x: 5
+			},
+			scrollable: true,
+			width: 384
+		}, items.map((item, index) => {
+			const itemUrl = item.url ?? "";
+			const itemSourceLabel = item.source_label ?? item.title ?? "Source";
+			const itemTitle = item.title ?? "";
+			const itemMetadata = item.metadata_label ?? "";
+			const itemSnippet = item.snippet ?? "";
+			const itemDetail = \\\`\\\${itemMetadata}\\\${itemMetadata && itemSnippet ? " — " : ""}\\\${itemSnippet}\\\`;
+			const source = /* @__PURE__ */ __dil.jsx("col", {
+				border: index === 0 ? void 0 : { top: {
+					color: "default",
+					size: 1
+				} },
+				gap: 1.5,
+				padding: { y: 3 },
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 2,
+				minWidth: 0,
+				width: "100%"
+			}, itemUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+				size: 16,
+				url: itemUrl
+			}) : null, /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				inline: true,
+				maxLines: 1,
+				size: "xs",
+				truncate: true
+			}, itemSourceLabel)), itemTitle ? /* @__PURE__ */ __dil.jsx("text", {
+				maxLines: 2,
+				size: "sm",
+				weight: "medium"
+			}, itemTitle) : null, itemDetail || item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "start",
+				gap: 4,
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("col", {
+				flex: 1,
+				minWidth: 0
+			}, itemDetail ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				maxLines: 3,
+				size: "sm"
+			}, itemDetail) : null), item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("image", {
+				alt: "",
+				fit: "cover",
+				height: 56,
+				hideOnFailure: true,
+				radius: "xl",
+				src: item.thumbnail_url,
+				width: 56
+			}) : null) : null);
+			return itemUrl ? /* @__PURE__ */ __dil.jsx("pressable", {
+				ariaLabel: \\\`Open \\\${itemSourceLabel}\\\`,
+				key: \\\`\\\${itemUrl}:\\\${index}\\\`,
+				onClick: () => GenUI.openUrl(itemUrl),
+				width: "100%"
+			}, source) : /* @__PURE__ */ __dil.jsx("col", {
+				key: \\\`source:\\\${index}\\\`,
+				width: "100%"
+			}, source);
+		}));
+	}
+	function MobileCitationSources({ items, title }) {
+		return /* @__PURE__ */ __dil.jsx("col", {
+			gap: 0,
+			maxHeight: 640,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			height: 64,
+			justify: "center",
+			padding: { x: 14 },
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			size: "lg",
+			strong: true
+		}, title ?? \\\`\\\${items.length} \\\${items.length === 1 ? "Source" : "Sources"}\\\`)), /* @__PURE__ */ __dil.jsx("col", {
+			gap: 0,
+			maxHeight: 560,
+			padding: {
+				bottom: 2,
+				x: 5
+			},
+			scrollable: true,
+			width: "100%"
+		}, items.map((item, index) => {
+			const itemUrl = item.url ?? "";
+			const itemSourceLabel = item.source_label ?? item.title ?? "Source";
+			const itemTitle = item.title ?? "";
+			const itemMetadata = item.metadata_label ?? "";
+			const itemSnippet = item.snippet ?? "";
+			const itemDetail = \\\`\\\${itemMetadata}\\\${itemMetadata && itemSnippet ? " — " : ""}\\\${itemSnippet}\\\`;
+			const source = /* @__PURE__ */ __dil.jsx("col", {
+				border: index === 0 ? void 0 : { top: {
+					color: "default",
+					size: 1
+				} },
+				gap: 3,
+				padding: { y: 5 },
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 2,
+				minWidth: 0,
+				width: "100%"
+			}, itemUrl ? /* @__PURE__ */ __dil.jsx("favicon", {
+				size: 16,
+				url: itemUrl
+			}) : null, /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				inline: true,
+				maxLines: 1,
+				size: "xs",
+				truncate: true
+			}, itemSourceLabel)), itemTitle ? /* @__PURE__ */ __dil.jsx("text", {
+				maxLines: 2,
+				size: "sm",
+				weight: "medium"
+			}, itemTitle) : null, itemDetail || item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "start",
+				gap: 4,
+				width: "100%"
+			}, /* @__PURE__ */ __dil.jsx("col", {
+				flex: 1,
+				minWidth: 0
+			}, itemDetail ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				maxLines: 3,
+				size: "sm"
+			}, itemDetail) : null), item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("image", {
+				alt: "",
+				fit: "cover",
+				height: 56,
+				hideOnFailure: true,
+				radius: "xl",
+				src: item.thumbnail_url,
+				width: 56
+			}) : null) : null);
+			return itemUrl ? /* @__PURE__ */ __dil.jsx("pressable", {
+				ariaLabel: \\\`Open \\\${itemSourceLabel}\\\`,
+				key: \\\`\\\${itemUrl}:\\\${index}\\\`,
+				onClick: () => GenUI.openUrl(itemUrl),
+				width: "100%"
+			}, source) : /* @__PURE__ */ __dil.jsx("col", {
+				key: \\\`source:\\\${index}\\\`,
+				width: "100%"
+			}, source);
+		})));
+	}
+	function Cite(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("Cite", props);
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading citations" });
+		const items = state.items ?? [];
+		if (!items.length) return null;
+		return /* @__PURE__ */ __dil.jsx(ResolvedCite, {
+			activeIndex: state.active_index,
+			items,
+			sourcesTitle: state.sources_title
+		});
+	}
+
+//#endregion
+return Cite;
+})();
+return __dilDefaultExport;
+})())\`,CodeBlock:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "CodeBlock", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region CodeBlock.dil.tsx
+	function CodeBlock({ content, language }) {
+		return /* @__PURE__ */ __dil.jsx("card", { size: "full" }, /* @__PURE__ */ __dil.jsx("col", { gap: 2 }, /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			size: "sm",
+			weight: "medium"
+		}, language ?? "code"), /* @__PURE__ */ __dil.jsx("box", {
+			background: "surface-secondary",
+			padding: 3,
+			radius: "md"
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			preserveWhitespace: true,
+			size: "sm"
+		}, content))));
+	}
+
+//#endregion
+return CodeBlock;
+})();
+return __dilDefaultExport;
+})())\`,Entity:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "Entity", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region Entity.dil.tsx
+	function Entity(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("Entity", props);
+		const isMobile = DIL.useIsMobile();
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading entity" });
+		const onClick = () => state.click_action ? GenUI.dispatchAction(state.click_action) : state.action_payload ? GenUI.dispatchAction({
+			handler: "client",
+			type: "open_entity_detail",
+			payload: state.action_payload
+		}) : GenUI.openEntityDetail(props.category ?? "ask_sidebar", props.query ?? state.value);
+		const entity = state.entity_data;
+		if (!isMobile && state.action_payload != null && entity != null) {
+			const name = entity.name || state.value;
+			const categories = entity.categories?.filter(Boolean) ?? [];
+			const hasRating = typeof entity.rating === "number" && Number.isFinite(entity.rating);
+			const hasPrice = Boolean(entity.price_str);
+			const hasOpenStatus = typeof entity.is_open === "boolean";
+			const directionsUrl = state.directions_url;
+			const legacyWebsiteUrl = entity.website_url;
+			const legacyWebsiteMatch = typeof legacyWebsiteUrl === "string" ? /^https:\\\\/\\\\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\\\.)+(?:[a-z]{2,63}|xn--[a-z0-9](?:[a-z0-9-]{0,57}[a-z0-9])?)(?::(\\\\d{1,5}))?(?:[/?#][^\\\\s\\\\\\\\]*)?$/i.exec(legacyWebsiteUrl) : null;
+			const websiteUrl = state.website_url ?? (legacyWebsiteMatch && (!legacyWebsiteMatch[1] || Number(legacyWebsiteMatch[1]) <= 65535) ? legacyWebsiteUrl : void 0);
+			return /* @__PURE__ */ __dil.jsx("popover", {
+				hoverOpenDelay: 150,
+				showOnHover: true
+			}, /* @__PURE__ */ __dil.jsx("popover-trigger", { onClick }, /* @__PURE__ */ __dil.jsx("text", {
+				inline: true,
+				underline: "dotted"
+			}, state.value)), /* @__PURE__ */ __dil.jsx("popover-content", {
+				align: "center",
+				side: "top",
+				sideOffset: 8
+			}, /* @__PURE__ */ __dil.jsx("col", {
+				gap: 3,
+				maxWidth: "100%",
+				padding: 4,
+				width: 420
+			}, /* @__PURE__ */ __dil.jsx("row", {
+				align: "start",
+				gap: 3,
+				wrap: "nowrap"
+			}, state.image_url ? /* @__PURE__ */ __dil.jsx("pressable", {
+				ariaLabel: \\\`View details for \\\${name}\\\`,
+				onClick
+			}, /* @__PURE__ */ __dil.jsx("image", {
+				alt: name,
+				fit: "cover",
+				height: 96,
+				hideOnFailure: true,
+				radius: "xl",
+				src: state.image_url,
+				width: 96
+			})) : null, /* @__PURE__ */ __dil.jsx("col", {
+				flex: 1,
+				gap: 1,
+				minWidth: 0
+			}, /* @__PURE__ */ __dil.jsx("pressable", {
+				ariaLabel: \\\`View details for \\\${name}\\\`,
+				maxWidth: "100%",
+				onClick,
+				width: "fit-content"
+			}, /* @__PURE__ */ __dil.jsx("text", {
+				inline: true,
+				maxLines: 1,
+				size: "lg",
+				weight: "semibold"
+			}, name)), hasRating || categories.length > 0 ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 1,
+				wrap: "wrap"
+			}, hasRating ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 1,
+				wrap: "nowrap"
+			}, /* @__PURE__ */ __dil.jsx("icon", {
+				color: "primary",
+				name: "star-filled",
+				size: "sm"
+			}), /* @__PURE__ */ __dil.jsx("text", {
+				inline: true,
+				size: "md"
+			}, Math.round(entity.rating * 10) / 10)) : null, hasRating && categories.length > 0 ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				inline: true,
+				size: "md"
+			}, "•") : null, categories.length > 0 ? /* @__PURE__ */ __dil.jsx("text", {
+				inline: true,
+				maxLines: 1,
+				size: "md"
+			}, categories.join(", ")) : null) : null, hasPrice || hasOpenStatus ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 1,
+				wrap: "wrap"
+			}, hasPrice ? /* @__PURE__ */ __dil.jsx("text", {
+				inline: true,
+				size: "md"
+			}, entity.price_str) : null, hasPrice && hasOpenStatus ? /* @__PURE__ */ __dil.jsx("text", {
+				color: "secondary",
+				inline: true,
+				size: "md"
+			}, "•") : null, hasOpenStatus ? /* @__PURE__ */ __dil.jsx("text", {
+				color: entity.is_open ? "success" : "secondary",
+				inline: true,
+				size: "md"
+			}, entity.is_open ? "Open" : "Closed") : null) : null)), directionsUrl || websiteUrl ? /* @__PURE__ */ __dil.jsx("row", {
+				align: "center",
+				gap: 2,
+				width: "100%",
+				wrap: "nowrap"
+			}, directionsUrl ? /* @__PURE__ */ __dil.jsx("button", {
+				block: true,
+				color: "secondary",
+				onClick: () => GenUI.openUrl(directionsUrl),
+				size: "md",
+				variant: "outline"
+			}, "Directions") : null, websiteUrl ? /* @__PURE__ */ __dil.jsx("button", {
+				block: true,
+				color: "secondary",
+				onClick: () => GenUI.openUrl(websiteUrl),
+				size: "md",
+				variant: "outline"
+			}, "Website") : null) : null)));
+		}
+		return /* @__PURE__ */ __dil.jsx("pressable", {
+			inline: true,
+			onClick
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			underline: "dotted"
+		}, state.value));
+	}
+
+//#endregion
+return Entity;
+})();
+return __dilDefaultExport;
+})())\`,FileCite:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "FileCite", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region FileCite.dil.tsx
+	function storedLocationLabel(payload) {
+		const page = payload?.page_range_start;
+		const lastPage = payload?.page_range_end;
+		if (typeof page === "number" && Number.isInteger(page) && page > 0) return typeof lastPage === "number" && Number.isInteger(lastPage) && lastPage > page ? \\\`Pages \\\${page}–\\\${lastPage}\\\` : \\\`Page \\\${page}\\\`;
+		const line = payload?.input_pointer?.line_range_start;
+		const lastLine = payload?.input_pointer?.line_range_end;
+		if (typeof line === "number" && Number.isInteger(line) && line >= 0) return typeof lastLine === "number" && Number.isInteger(lastLine) && lastLine > line ? \\\`Lines \\\${line}–\\\${lastLine}\\\` : \\\`Line \\\${line}\\\`;
+		return null;
+	}
+	function ResolvedFileCite({ state }) {
+		const isMobile = DIL.useIsMobile();
+		const isSm = DIL.useBreakpoint("sm");
+		const [hovered, setHovered] = DIL.useState(false);
+		const name = state.file_name ?? "Document";
+		const payload = state.file_action_payload;
+		const snippet = typeof payload?.snippet === "string" ? payload.snippet : typeof payload?.text === "string" ? payload.text : null;
+		const locationLabel = storedLocationLabel(payload);
+		const openFile = () => {
+			if (payload) GenUI.dispatchAction({
+				handler: "client",
+				type: "open_file_citation",
+				payload
+			});
+			else if (state.safe_file_url) GenUI.openUrl(state.safe_file_url);
+		};
+		return /* @__PURE__ */ __dil.jsx("popover", {
+			hoverOpenDelay: 80,
+			showOnHover: true
+		}, /* @__PURE__ */ __dil.jsx("popover-trigger", { onClick: () => !isMobile && isSm ? openFile() : void 0 }, /* @__PURE__ */ __dil.jsx("badge", {
+			color: hovered ? {
+				light: "#e8e8e8",
+				dark: "gray-300"
+			} : {
+				light: "gray-75",
+				dark: "gray-400"
+			},
+			onHover: setHovered,
+			padding: {
+				left: 1,
+				right: 1.5,
+				y: 1
+			},
+			size: "sm",
+			variant: "soft",
+			weight: "normal"
+		}, /* @__PURE__ */ __dil.jsx("icon", {
+			color: "secondary",
+			name: "document",
+			size: "sm"
+		}), /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			inline: true,
+			maxLines: 1,
+			size: "2xs",
+			truncate: true
+		}, name))), /* @__PURE__ */ __dil.jsx("popover-content", {
+			align: "start",
+			side: "bottom",
+			sideOffset: 8
+		}, /* @__PURE__ */ __dil.jsx("col", {
+			gap: 2,
+			maxWidth: "100%",
+			padding: 4,
+			width: isMobile ? "100%" : 345
+		}, /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`Open \\\${name}\\\`,
+			gap: 2,
+			onClick: openFile
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 2
+		}, /* @__PURE__ */ __dil.jsx("icon", {
+			color: "secondary",
+			name: "document",
+			size: "md"
+		}), /* @__PURE__ */ __dil.jsx("text", {
+			maxLines: 2,
+			size: "sm",
+			weight: "semibold"
+		}, name)), locationLabel ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			size: "xs"
+		}, locationLabel) : null, snippet ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			maxLines: 6,
+			size: "sm"
+		}, snippet) : null))));
+	}
+	function FileCite(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("FileCite", props);
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading file citation" });
+		return state.file_name ? /* @__PURE__ */ __dil.jsx(ResolvedFileCite, { state }) : null;
+	}
+
+//#endregion
+return FileCite;
+})();
+return __dilDefaultExport;
+})())\`,FollowUp:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "FollowUp", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region FollowUp.dil.tsx
+	function FollowUp({ query, value }) {
+		return /* @__PURE__ */ __dil.jsx("pressable", {
+			inline: true,
+			onClick: () => GenUI.issueNewTurn(query ?? value)
+		}, /* @__PURE__ */ __dil.jsx("text", { inline: true }, /* @__PURE__ */ __dil.jsx("icon", {
+			inline: true,
+			name: "arrow-curved"
+		}), " ", /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			underline: "dotted"
+		}, value)));
+	}
+
+//#endregion
+return FollowUp;
+})();
+return __dilDefaultExport;
+})())\`,FollowUpActionBar:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "FollowUpActionBar", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region FollowUpActionBar.dil.tsx
+	function FollowUpActionBar({ actions = [], contentReferenceType }) {
+		const isSm = DIL.useBreakpoint("sm");
+		const isXs = DIL.useBreakpoint("xs");
+		const visibleActions = actions.slice(0, isSm ? 3 : isXs ? 2 : 1);
+		return actions.length ? /* @__PURE__ */ __dil.jsx("box", { width: "100%" }, /* @__PURE__ */ __dil.jsx("box", { padding: {
+			x: 5,
+			y: 3
+		} }, /* @__PURE__ */ __dil.jsx("divider", null)), /* @__PURE__ */ __dil.jsx("box", { padding: {
+			bottom: 5,
+			left: 5,
+			right: 5
+		} }, /* @__PURE__ */ __dil.jsx("box", {
+			background: "surface-secondary",
+			border: {
+				color: "alpha-12",
+				size: 1
+			},
+			padding: {
+				x: .5,
+				y: .5
+			},
+			radius: "lg"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			ariaLabel: "Suggested follow-ups",
+			gap: 0,
+			role: "group",
+			width: "100%"
+		}, visibleActions.map((action, index) => /* @__PURE__ */ __dil.jsx("box", {
+			align: "center",
+			direction: "row",
+			flex: 1,
+			key: \\\`\\\${action.query}:\\\${index}\\\`,
+			minWidth: 0
+		}, index > 0 ? /* @__PURE__ */ __dil.jsx("box", {
+			ariaHidden: true,
+			background: "alpha-10",
+			height: 24,
+			width: 1
+		}) : null, /* @__PURE__ */ __dil.jsx("box", {
+			align: "center",
+			flex: 1,
+			justify: "center",
+			minWidth: 0
+		}, /* @__PURE__ */ __dil.jsx("button", {
+			block: true,
+			color: "secondary",
+			onClick: () => GenUI.issueNewTurn(action.query, {
+				prompt: action.query,
+				event_name: "chatgpt_widget_action",
+				event_data: {
+					widget_affordance: "OPTION",
+					widget_action_target: "follow_up",
+					widget_action_value: action.label,
+					surface_location: "RESPONSE",
+					content_reference_type: contentReferenceType,
+					is_genui: true
+				}
+			}),
+			size: "sm",
+			variant: "ghost"
+		}, action.icon ? /* @__PURE__ */ __dil.jsx("icon", { name: action.icon }) : null, " ", action.label)))))))) : null;
+	}
+
+//#endregion
+return FollowUpActionBar;
+})();
+return __dilDefaultExport;
+})())\`,ImageGrid:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "ImageGrid", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function hasImageSource(image) {
+		return Boolean(image?.content_url || image?.thumbnail_url);
+	}
+	function imageKey(image) {
+		return image?.content_url ?? image?.thumbnail_url ?? image?.url ?? "";
+	}
+	function normalizedAspectRatio(value) {
+		return value?.replace(":", " / ");
+	}
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region ImageGrid.dil.tsx
+	function ResolvedImageGrid({ state }) {
+		const [recommendationRowsToShow, setRecommendationRowsToShow] = DIL.useState(state.recommendation_rows_to_show ?? 1);
+		const isSm = DIL.useBreakpoint("sm");
+		DIL.useEffect(() => {
+			setRecommendationRowsToShow(state.recommendation_rows_to_show ?? 1);
+		}, [state.recommendation_rows_to_show]);
+		const galleryTiles = (state.tiles?.length ? state.tiles : state.rows?.flatMap((row) => row.tiles) ?? []).filter((tile) => hasImageSource(tile.image));
+		const galleryImages = galleryTiles.map((tile) => tile.image);
+		const resolvedRows = (state.rows ?? []).map((row) => ({ tiles: row.tiles.filter((tile) => hasImageSource(tile.image)) })).filter((row) => row.tiles.length > 0);
+		const rows = resolvedRows.length ? resolvedRows : galleryTiles.length ? [{ tiles: galleryTiles }] : [];
+		const recommendations = (state.recommendations ?? []).filter((recommendation) => hasImageSource(recommendation.thumbnail_image));
+		const initialVisibleRecommendations = isSm ? 3 : 2;
+		const visibleRecommendations = recommendationRowsToShow > 1 ? recommendations : recommendations.slice(0, initialVisibleRecommendations);
+		if (!state.is_loading && !galleryTiles.length) return /* @__PURE__ */ __dil.jsx("box", { height: 0 });
+		return /* @__PURE__ */ __dil.jsx("col", {
+			gap: 4,
+			maxWidth: "100%",
+			width: 760
+		}, state.is_loading ? /* @__PURE__ */ __dil.jsx("box", {
+			background: "surface-primary",
+			clip: true,
+			radius: "2xl",
+			width: "100%"
+		}, state.placeholder_rows?.length ? /* @__PURE__ */ __dil.jsx("flow", {
+			columns: 1,
+			gap: "2px",
+			layout: "pack"
+		}, state.placeholder_rows.map((row, rowIndex) => /* @__PURE__ */ __dil.jsx("row", {
+			align: "stretch",
+			aspectRatio: normalizedAspectRatio(state.row_aspect_ratio),
+			gap: "2px",
+			key: rowIndex,
+			width: "100%"
+		}, row.tiles.map((tile, tileIndex) => /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: normalizedAspectRatio(tile.aspect_ratio),
+			background: "surface-tertiary",
+			clip: true,
+			flex: tile.flex_grow ?? 1,
+			height: "100%",
+			key: tileIndex,
+			minWidth: 0,
+			radius: "none"
+		}, /* @__PURE__ */ __dil.jsx("loading", { label: "Loading image" })))))) : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading images" })) : null, rows.length ? /* @__PURE__ */ __dil.jsx("box", {
+			background: "surface-primary",
+			clip: true,
+			radius: "2xl",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("flow", {
+			columns: 1,
+			gap: "2px",
+			layout: "pack"
+		}, rows.map((row, rowIndex) => /* @__PURE__ */ __dil.jsx("row", {
+			align: "stretch",
+			aspectRatio: normalizedAspectRatio(state.row_aspect_ratio),
+			gap: "2px",
+			key: rowIndex,
+			width: "100%"
+		}, row.tiles.map((tile, tileIndex) => /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: normalizedAspectRatio(tile.aspect_ratio),
+			background: "surface-secondary",
+			clip: true,
+			flex: tile.flex_grow ?? 1,
+			height: "100%",
+			key: imageKey(tile.image) || tileIndex,
+			minWidth: 0,
+			radius: "none"
+		}, /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: tile.image.title ? \\\`Open \\\${tile.image.title}\\\` : "Open image",
+			background: "transparent",
+			height: "100%",
+			onClick: () => GenUI.openImageLightbox(galleryImages, galleryTiles.findIndex((galleryTile) => tile.gallery_index === void 0 ? imageKey(galleryTile.image) === imageKey(tile.image) : galleryTile.gallery_index === tile.gallery_index)),
+			radius: "none",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("search-image", {
+			alt: tile.image.title ?? "",
+			fit: "cover",
+			height: "100%",
+			hideOnFailure: true,
+			radius: "none",
+			searchImage: tile.image,
+			width: "100%"
+		})))))))) : null, state.is_loading && state.recommendations?.length ? /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			ariaLabel: "Image search follow-ups",
+			gap: 2,
+			role: "list",
+			width: "100%",
+			wrap: "wrap"
+		}, state.recommendations.slice(0, initialVisibleRecommendations).map((recommendation, index) => /* @__PURE__ */ __dil.jsx("box", {
+			background: "surface-secondary",
+			clip: true,
+			flex: "0 1 auto",
+			height: 40,
+			key: \\\`\\\${recommendation.query}:\\\${index}\\\`,
+			padding: {
+				bottom: 2,
+				left: 2,
+				right: 4,
+				top: 2
+			},
+			radius: "full",
+			width: 156
+		}, /* @__PURE__ */ __dil.jsx("loading", { label: "Loading image recommendation" })))) : null, !state.is_loading && recommendations.length ? /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			ariaLabel: "Image search follow-ups",
+			gap: 2,
+			role: "list",
+			width: "100%",
+			wrap: "wrap"
+		}, [...visibleRecommendations.map((recommendation, index) => /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: recommendation.title,
+			border: {
+				color: "default",
+				size: 1
+			},
+			clip: true,
+			flex: "0 1 auto",
+			height: 40,
+			key: \\\`\\\${recommendation.query}:\\\${index}\\\`,
+			onClick: () => GenUI.issueNewTurn(\\\`search images of \\\${recommendation.query}\\\`, { append_to_current_leaf: true }),
+			padding: {
+				bottom: 2,
+				left: 2,
+				right: 4,
+				top: 2
+			},
+			radius: "full",
+			width: "fit-content"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 2,
+			height: "100%",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("search-image", {
+			alt: recommendation.title,
+			fit: "cover",
+			height: 24,
+			hideOnFailure: true,
+			radius: "full",
+			searchImage: recommendation.thumbnail_image,
+			width: 24
+		}), /* @__PURE__ */ __dil.jsx("box", {
+			maxWidth: 200,
+			minWidth: 0
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			maxLines: 1,
+			size: "sm",
+			truncate: true,
+			weight: "normal"
+		}, recommendation.title))))), ...recommendations.length > initialVisibleRecommendations ? [/* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: recommendationRowsToShow > 1 ? "Show fewer image search follow-ups" : "Show more image search follow-ups",
+			background: "surface-secondary",
+			border: {
+				color: "default",
+				size: 1
+			},
+			clip: true,
+			flex: "0 1 auto",
+			height: 40,
+			key: "image-grid-recommendation-toggle",
+			minWidth: 72,
+			onClick: () => setRecommendationRowsToShow(recommendationRowsToShow > 1 ? 1 : recommendations.length + 1),
+			padding: {
+				bottom: 2,
+				left: 4,
+				right: 4,
+				top: 2
+			},
+			radius: "full",
+			width: "fit-content"
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			maxLines: 1,
+			size: "sm",
+			truncate: true,
+			weight: "normal"
+		}, recommendationRowsToShow > 1 ? "Fewer" : "More"))] : []]) : null);
+	}
+	function ImageGrid(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("ImageGrid", props);
+		if (!state) return resolutionComplete ? props.fallback ?? /* @__PURE__ */ __dil.jsx("box", { height: 0 }) : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading images" });
+		return /* @__PURE__ */ __dil.jsx(ResolvedImageGrid, { state });
+	}
+
+//#endregion
+return ImageGrid;
+})();
+return __dilDefaultExport;
+})())\`,Link:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "Link", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region Link.dil.tsx
+	function Link(props) {
+		const needsResolution = !props.url || !props.title;
+		const { resolutionComplete, state } = useResolvedComponentResult("Link", props);
+		if (!state && needsResolution) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading link" });
+		const title = state?.title ?? props.title ?? props.url ?? "Link";
+		const url = state?.url ?? props.url ?? "";
+		const finalWordStart = /\\\\S+\\\\s*$/u.exec(title)?.index ?? 0;
+		const leadingTitle = title.slice(0, finalWordStart);
+		const trailingTitle = title.slice(finalWordStart);
+		return /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`Open \\\${title}\\\`,
+			inline: true,
+			onClick: () => GenUI.openUrl(url)
+		}, /* @__PURE__ */ __dil.jsx("text", { inline: true }, leadingTitle ? /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			underline: "dotted"
+		}, leadingTitle) : null, /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			width: "max-content"
+		}, /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			underline: "dotted"
+		}, trailingTitle), "\\\\xA0", /* @__PURE__ */ __dil.jsx("icon", {
+			inline: true,
+			name: "arrow-up-right"
+		}))));
+	}
+
+//#endregion
+return Link;
+})();
+return __dilDefaultExport;
+})())\`,LinkCard:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "LinkCard", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region LinkCard.dil.tsx
+	function LinkCard(props) {
+		const needsResolution = !props.url || !props.title;
+		const { resolutionComplete, state } = useResolvedComponentResult("LinkCard", props);
+		if (!state && needsResolution) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading link" });
+		const title = state?.title ?? props.title ?? props.url ?? "Link";
+		const url = state?.url ?? props.url ?? "";
+		const source = state?.source_label ?? props.subtitle;
+		const snippet = state?.snippet ?? props.snippet;
+		return /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`Open \\\${title}\\\`,
+			onClick: () => GenUI.openUrl(url)
+		}, /* @__PURE__ */ __dil.jsx("card", {
+			gap: 2,
+			size: "sm"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 2,
+			minWidth: 0,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("favicon", {
+			frame: true,
+			size: 20,
+			url
+		}), source ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			maxLines: 1,
+			size: "xs",
+			truncate: true
+		}, source) : null), /* @__PURE__ */ __dil.jsx("text", {
+			color: "prose",
+			maxLines: 2,
+			size: "sm",
+			truncate: true,
+			weight: "medium"
+		}, title), snippet ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			maxLines: 2,
+			size: "sm",
+			truncate: true
+		}, snippet) : null));
+	}
+
+//#endregion
+return LinkCard;
+})();
+return __dilDefaultExport;
+})())\`,MediaFallback:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "MediaFallback", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region MediaFallback.dil.tsx
+	function MediaFallback({ children, height = "100%", width = "100%" }) {
+		return /* @__PURE__ */ __dil.jsx("box", {
+			align: "center",
+			background: "surface-tertiary",
+			height,
+			justify: "center",
+			width
+		}, children);
+	}
+
+//#endregion
+return MediaFallback;
+})();
+return __dilDefaultExport;
+})())\`,NewsCarousel:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "NewsCarousel", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region NewsCarousel.dil.tsx
+	function NewsCarousel(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("NewsCarousel", props);
+		const isSm = DIL.useBreakpoint("sm");
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading news" });
+		const items = state.items ?? [];
+		return items.length ? /* @__PURE__ */ __dil.jsx("col", {
+			gap: 3,
+			width: "100%"
+		}, state.title ? /* @__PURE__ */ __dil.jsx("text", { strong: true }, state.title) : null, /* @__PURE__ */ __dil.jsx("carousel", {
+			ariaLabel: "News",
+			gap: 4
+		}, items.map((item) => /* @__PURE__ */ __dil.jsx("carousel-item", {
+			background: "surface-elevated",
+			key: item.ref,
+			padding: 0,
+			variant: "outline",
+			width: isSm ? "31.5%" : "47.5%"
+		}, /* @__PURE__ */ __dil.jsx("pressable", {
+			onClick: () => GenUI.openUrl(item.url),
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("col", {
+			gap: 4,
+			height: "100%",
+			padding: { bottom: 6 },
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("box", {
+			align: "center",
+			background: "surface-secondary",
+			clip: true,
+			height: "144px",
+			justify: "center",
+			width: "100%"
+		}, item.thumbnail_url ? /* @__PURE__ */ __dil.jsx("image", {
+			alt: item.title,
+			fit: "cover",
+			height: "100%",
+			radius: "none",
+			src: item.thumbnail_url,
+			width: "100%"
+		}) : /* @__PURE__ */ __dil.jsx("favicon", {
+			frame: true,
+			size: 40,
+			url: item.url
+		})), /* @__PURE__ */ __dil.jsx("col", {
+			gap: 2,
+			padding: { x: 4 },
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 1
+		}, /* @__PURE__ */ __dil.jsx("favicon", {
+			frame: true,
+			size: 16,
+			url: item.url
+		}), /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			maxLines: 1,
+			size: "xs",
+			truncate: true
+		}, item.source_label)), /* @__PURE__ */ __dil.jsx("text", {
+			maxLines: 5,
+			size: "sm"
+		}, item.title), item.date_label ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			size: "xs"
+		}, item.date_label) : null))))))) : null;
+	}
+
+//#endregion
+return NewsCarousel;
+})();
+return __dilDefaultExport;
+})())\`,ProductCard:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "ProductCard", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region ProductCard.dil.tsx
+	function ProductCard(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("ProductCard", props);
+		if (!state) return resolutionComplete ? null : /* @__PURE__ */ __dil.jsx("loading", { label: "Loading product" });
+		if (!state.image_url) return null;
+		const onClick = () => GenUI.openEntityDetail("product", state.title, { product: state.product });
+		if (state.render_as === "item") return /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`View details for \\\${state.title}\\\`,
+			height: "100%",
+			onClick,
+			padding: { x: 2 },
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("col", {
+			gap: 2,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: "1 / 1",
+			radius: "lg",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("image", {
+			alt: state.title,
+			fit: "contain",
+			height: "100%",
+			radius: "lg",
+			src: state.image_url,
+			width: "100%"
+		})), /* @__PURE__ */ __dil.jsx("col", {
+			gap: 1,
+			minWidth: 0,
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("title", {
+			size: "sm",
+			weight: "semibold"
+		}, state.title), state.price || state.description ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			maxLines: 3,
+			size: "sm"
+		}, state.price ? /* @__PURE__ */ __dil.jsx("text", {
+			inline: true,
+			strong: true
+		}, state.price) : null, state.description ? /* @__PURE__ */ __dil.jsx("text", { inline: true }, state.price ? " • " : "", state.description) : null) : null)));
+		if (state.render_as === "hero") return /* @__PURE__ */ __dil.jsx("card", { width: "100%" }, /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`View details for \\\${state.title}\\\`,
+			onClick
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 4,
+			wrap: "nowrap",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: "4 / 3",
+			maxWidth: "38%",
+			minWidth: 144,
+			width: 260
+		}, /* @__PURE__ */ __dil.jsx("image", {
+			alt: state.title,
+			fit: "contain",
+			height: "100%",
+			radius: "lg",
+			src: state.image_url,
+			width: "100%"
+		})), /* @__PURE__ */ __dil.jsx("col", {
+			flex: "auto",
+			gap: 2,
+			minWidth: 0
+		}, /* @__PURE__ */ __dil.jsx("title", {
+			size: "lg",
+			weight: "semibold"
+		}, state.title), /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 2,
+			wrap: "wrap"
+		}, state.price ? /* @__PURE__ */ __dil.jsx("text", { weight: "semibold" }, state.price) : null, state.merchant ? /* @__PURE__ */ __dil.jsx("text", { color: "secondary" }, state.merchant) : null), state.description ? /* @__PURE__ */ __dil.jsx("text", null, state.description) : null))));
+		return /* @__PURE__ */ __dil.jsx("card", { width: "100%" }, /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: \\\`View details for \\\${state.title}\\\`,
+			onClick
+		}, /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 3,
+			wrap: "nowrap",
+			width: "100%"
+		}, /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: "4 / 3",
+			maxWidth: "32%",
+			minWidth: 96,
+			width: 132
+		}, /* @__PURE__ */ __dil.jsx("image", {
+			alt: state.title,
+			fit: "contain",
+			height: "100%",
+			radius: "lg",
+			src: state.image_url,
+			width: "100%"
+		})), /* @__PURE__ */ __dil.jsx("col", {
+			flex: "auto",
+			gap: 1,
+			minWidth: 0
+		}, /* @__PURE__ */ __dil.jsx("title", {
+			size: "md",
+			weight: "semibold"
+		}, state.title), /* @__PURE__ */ __dil.jsx("row", {
+			align: "center",
+			gap: 2,
+			wrap: "wrap"
+		}, state.price ? /* @__PURE__ */ __dil.jsx("text", {
+			size: "sm",
+			weight: "semibold"
+		}, state.price) : null, state.merchant ? /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			size: "sm"
+		}, state.merchant) : null), state.description ? /* @__PURE__ */ __dil.jsx("text", { size: "sm" }, state.description) : null))));
+	}
+
+//#endregion
+return ProductCard;
+})();
+return __dilDefaultExport;
+})())\`,SyntheticImage:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "SyntheticImage", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region shared.dil.ts
+	function hasImageSource(image) {
+		return Boolean(image?.content_url || image?.thumbnail_url);
+	}
+	function normalizedAspectRatio(value) {
+		return value?.replace(":", " / ");
+	}
+	function useResolvedComponentResult(componentName, props) {
+		const opGenui = DIL.useAppData((appData) => appData.opGenui);
+		if (props.__state !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: props.__state
+		};
+		const key = componentDataKey(componentName, props);
+		const result = opGenui?.componentResults?.[key];
+		if (isComponentResultEnvelope(result)) return result.status === "resolved" ? {
+			status: "resolved",
+			resolutionComplete: true,
+			state: result.state
+		} : {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		const legacyState = opGenui?.componentData?.[key];
+		if (legacyState !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: legacyState
+		};
+		if (opGenui?.componentResults !== void 0) return {
+			status: "failed",
+			resolutionComplete: true,
+			state: void 0
+		};
+		if (opGenui?.componentData !== void 0) return {
+			status: "resolved",
+			resolutionComplete: true,
+			state: void 0
+		};
+		return {
+			status: "pending",
+			resolutionComplete: false,
+			state: void 0
+		};
+	}
+	function isComponentResultEnvelope(value) {
+		if (typeof value !== "object" || value == null || Array.isArray(value)) return false;
+		const result = value;
+		if (result.status === "resolved") return typeof result.state === "object" && result.state != null && !Array.isArray(result.state);
+		return result.status === "failed" && (result.code === "component_unavailable" || result.code === "tool_failed" || result.code === "invalid_tool_result") && typeof result.retryable === "boolean";
+	}
+	function componentDataKey(componentName, props) {
+		return JSON.stringify([componentName, normalizeComponentProps(props)]);
+	}
+	function normalizeComponentProps(props) {
+		const normalized = {};
+		for (const key of Object.keys(props).sort()) {
+			if (key === "__state" || key === "children" || key === "fallback") continue;
+			const value = normalizeComponentValue(props[key]);
+			if (value !== void 0) normalized[key] = value;
+		}
+		return normalized;
+	}
+	function normalizeComponentValue(value) {
+		if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return value;
+		if (Array.isArray(value)) return value.map(normalizeComponentValue);
+		if (typeof value === "object") {
+			const normalized = {};
+			for (const key of Object.keys(value).sort()) {
+				const nestedValue = normalizeComponentValue(value[key]);
+				if (nestedValue !== void 0) normalized[key] = nestedValue;
+			}
+			return normalized;
+		}
+	}
+
+//#endregion
+//#region SyntheticImage.dil.tsx
+/** Mirror v1: only pixel max-widths supply a non-shrinking preferred width. */
+	function hasPreferredPixelWidth(value) {
+		if (typeof value === "number") return Number.isFinite(value) && value >= 0;
+		return typeof value === "string" && /^\\\\d+(?:\\\\.\\\\d+)?(?:px)?$/.test(value.trim());
+	}
+	/** Mirror the v1 intrinsic frame while image resolution is still pending. */
+	function unresolvedAspectWidth(maxHeight, aspectRatio) {
+		return \\\`calc(\\\${typeof maxHeight === "number" ? \\\`\\\${maxHeight}px\\\` : /^\\\\d+(?:\\\\.\\\\d+)?$/.test(maxHeight.trim()) ? \\\`\\\${maxHeight.trim()}px\\\` : maxHeight.trim()} * \\\${normalizedAspectRatio(aspectRatio)})\\\`;
+	}
+	function SyntheticImage(props) {
+		const { resolutionComplete, state } = useResolvedComponentResult("SyntheticImage", props);
+		const isLoading = state?.is_loading ?? !resolutionComplete;
+		const image = state?.images?.[0];
+		const hasImage = hasImageSource(image);
+		if (!isLoading && !hasImage && (!props.fallback || state == null)) return /* @__PURE__ */ __dil.jsx("box", { height: 0 });
+		const frameMaxWidth = state?.frame_max_width ?? props.maxWidth;
+		const frameAspectRatio = state?.frame_aspect_ratio ?? props.aspectRatio;
+		const presentation = state?.presentation;
+		const hasAuthoredDimensions = props.width != null || props.height != null;
+		const unresolvedSize = isLoading && state == null && props.aspectRatio == null && !hasAuthoredDimensions ? props.maxHeight ?? 220 : void 0;
+		const unresolvedWidth = isLoading && state == null && props.aspectRatio != null ? unresolvedAspectWidth(props.maxHeight ?? 220, props.aspectRatio) : unresolvedSize;
+		const imageElement = hasImage ? /* @__PURE__ */ __dil.jsx("search-image", {
+			alt: image?.title ?? "",
+			aspectRatio: normalizedAspectRatio(frameAspectRatio),
+			fallback: props.fallback,
+			fit: state?.image_fit ?? "cover",
+			height: "100%",
+			hideOnFailure: true,
+			radius: "none",
+			searchImage: image,
+			width: "100%"
+		}) : props.fallback;
+		return /* @__PURE__ */ __dil.jsx("box", {
+			aspectRatio: normalizedAspectRatio(frameAspectRatio),
+			border: (presentation?.frame ?? props.frame ?? true) && !isLoading && hasImage ? {
+				color: "subtle",
+				size: 1
+			} : void 0,
+			clip: true,
+			flex: hasPreferredPixelWidth(frameMaxWidth) ? "0 0 auto" : void 0,
+			height: state?.frame_height ?? props.height ?? (props.width != null || frameAspectRatio != null ? void 0 : unresolvedSize ?? "100%"),
+			maxHeight: state?.max_height !== void 0 ? state.max_height ?? void 0 : props.maxHeight ?? (hasAuthoredDimensions ? void 0 : unresolvedSize),
+			maxWidth: frameMaxWidth,
+			minHeight: presentation?.min_height ?? props.minHeight,
+			minWidth: presentation?.min_width ?? props.minWidth ?? 0,
+			radius: presentation?.radius ?? props.radius ?? "xl",
+			width: state?.frame_width ?? props.width ?? unresolvedWidth ?? "100%"
+		}, isLoading ? /* @__PURE__ */ __dil.jsx("loading-block", {
+			background: "surface-tertiary",
+			duration: 1e3,
+			height: "100%",
+			label: "Loading image",
+			width: "100%"
+		}) : !hasImage ? props.fallback : props.onClickAction === null ? imageElement : /* @__PURE__ */ __dil.jsx("pressable", {
+			ariaLabel: image?.title ? \\\`Open \\\${image.title}\\\` : "Open image",
+			background: "transparent",
+			height: "100%",
+			onClick: () => props.onClickAction ? GenUI.dispatchAction(props.onClickAction) : state?.default_on_click_action ? GenUI.dispatchAction(state.default_on_click_action) : GenUI.openImageLightbox(state?.images ?? [], 0),
+			radius: "none",
+			width: "100%"
+		}, imageElement));
+	}
+
+//#endregion
+return SyntheticImage;
+})();
+return __dilDefaultExport;
+})())\`,WritingBlock:\`((Component) => Object.assign(function ResolvedComponent(props) { return __dil.jsx(OpGenuiResolvedComponentBoundary, { componentName: "WritingBlock", componentProps: props, Component }); }, Component))((() => {
+var __dilDefaultExport = (function() {
+
+
+//#region WritingBlock.dil.tsx
+	function WritingBlock({ children, content, subject, variant }) {
+		const body = content ?? children;
+		return /* @__PURE__ */ __dil.jsx("card", { size: "full" }, /* @__PURE__ */ __dil.jsx("col", { gap: 2 }, variant === "email" && subject ? /* @__PURE__ */ __dil.jsx(__dil.Fragment, null, /* @__PURE__ */ __dil.jsx("col", { gap: 1 }, /* @__PURE__ */ __dil.jsx("text", {
+			color: "secondary",
+			size: "sm",
+			weight: "medium"
+		}, "Subject"), /* @__PURE__ */ __dil.jsx("text", { weight: "semibold" }, subject)), /* @__PURE__ */ __dil.jsx("divider", null)) : /* @__PURE__ */ __dil.jsx("title", null, "Writing Block"), /* @__PURE__ */ __dil.jsx("text", { preserveWhitespace: true }, body)));
+	}
+
+//#endregion
+return WritingBlock;
+})();
+return __dilDefaultExport;
+})())\`})})(Q,Q.exports)),Q.exports}var Lt;function Xt(){return Lt||(Lt=1,(function(h,t){h.path="dil_sandbox/src/DILSandboxGlobals",Object.defineProperty(t,"__esModule",{value:!0}),t.hardenSandboxGlobal=t.lockDownSandboxGlobal=void 0;const d=A(),f=Jt(),y=new Set(["AggregateError","Array","ArrayBuffer","Atomics","BigInt","BigInt64Array","BigUint64Array","Boolean","DataView","Date","DebuggerInternal","Error","EvalError","FinalizationRegistry","Float16Array","Float32Array","Float64Array","Function","HermesES6Internal","HermesInternal","Infinity","Intl","Int8Array","Int16Array","Int32Array","Iterator","JSON","Map","Math","NaN","Number","Object","Promise","Proxy","RangeError","ReferenceError","Reflect","RegExp","Set","SharedArrayBuffer","String","Symbol","SyntaxError","TextEncoder","TypeError","URIError","Uint8Array","Uint8ClampedArray","Uint16Array","Uint32Array","WeakMap","WeakRef","WeakSet","decodeURI","decodeURIComponent","encodeURI","encodeURIComponent","escape","eval","globalThis","isFinite","isNaN","onmessage","parseFloat","parseInt","undefined","unescape",...Object.keys(f.DIL_COMPONENT_SOURCES)]);function l(i){for(const u of Object.getOwnPropertyNames(i))if(!y.has(u)){try{i[u]=void 0}catch{}try{Reflect.deleteProperty(i,u)}catch{}if(i[u]!==void 0)throw new Error(\`Failed to remove sandbox global '\${u}'.\`)}Object.freeze(i)}t.lockDownSandboxGlobal=l;function r(i){for(const u of Reflect.ownKeys(i))typeof u=="string"&&u!=="onmessage"&&y.has(u)||s(i,u);(0,d.freezeObjectGraph)(i,!0)}t.hardenSandboxGlobal=r;function s(i,u){try{Reflect.set(i,u,void 0)}catch{}try{Reflect.deleteProperty(i,u)}catch{}const n=Object.getOwnPropertyDescriptor(i,u);if(!(n===void 0||"value"in n&&n.value===void 0))throw new Error(\`Failed to remove sandbox global '\${String(u)}'.\`)}})(Z,Z.exports)),Z.exports}var Yt=Xt();const jt="__oaiDilWebHostBridge",Zt="__oaiDilWebElementProps";class Qt extends Kt.DILSandboxRuntime{pendingRenderFlushes;render(t){const d=[];this.pendingRenderFlushes=d;try{const f=super.render(t);if(f.encoded!==void 0&&!f.errors?.length)for(const y of d)super.scheduleFlush(y);return f}finally{this.pendingRenderFlushes=void 0}}scheduleFlush(t){this.pendingRenderFlushes?this.pendingRenderFlushes.push(t):super.scheduleFlush(t)}}class te{appDataProxies=new WeakMap;data;disposed=!1;dirty=!1;flushScheduled=!1;globals;lastSource;options;renderedPropNames=[];rendering=!1;runtime;types=[];wrappedDil=new WeakMap;wrappedJsx=new WeakMap;constructor(t,d){this.options=d,this.globals=d.globals??{},this.data=St(d.data);for(const l of Object.keys(this.globals))if(Ut(l),l==="DIL"||l==="__dil")throw new Error(\`DIL global "\${l}" is reserved\`);const f=new Map,y=new Proxy(Object.create(null),{get:(l,r)=>{if(typeof r!="string")return;let s=f.get(r);return s||(s={childrenMode:Et.DILElementChildrenMode.RenderedNodes,primitiveTextProp:void 0,renderedPropNames:this.renderedPropNames,typeId:this.types.push(r)},f.set(r,s)),s}});this.runtime=new Qt(y,this.scheduleRender,(l,r)=>r(),void 0,Et.DILRenderErrorMode.ReportAndAbortRender,void 0,l=>{try{this.options.onStateChange?.(JSON.parse(l))}catch{}}),this.runtime.render(this.createRenderInput()),d.stateSnapshot&&this.runtime.setStateSnapshot(JSON.stringify(d.stateSnapshot)),this.updateSource(t)}updateSource(t){if(this.disposed)return;let d;try{d=this.prepareSource(t);const f=this.runtime.updateSource(d);if(f?.length){this.restoreSource(),this.options.onError(f[0]);return}}catch(f){this.restoreSource(),this.options.onError(f);return}this.render()?this.lastSource=d:this.restoreSource()}setData(t){this.disposed||(this.data=St(t),this.render())}setStateSnapshot(t){this.disposed||(this.runtime.setStateSnapshot(t===void 0?void 0:JSON.stringify(t)),this.flushRender())}invokeFunction(t,d,f){try{const y=this.runtime.invokeFunction(t,d);if(this.flushRender(),!y||typeof y.then!="function")return y;const l=Promise.resolve(y).then(r=>(this.flushRender(),r),r=>{if(this.options.onError(r),f)throw r});return f?l:void 0}catch(y){if(this.options.onError(y),f)throw y;return}}registerDilMessengerTransport(t,d){return this.runtime.registerHtmlViewMessengerTransport(t,d)}dispose(){if(!this.disposed){this.disposed=!0;for(const t of this.runtime.dispose()??[])this.options.onError(t)}}scheduleRender=()=>{this.dirty=!0,this.scheduleFlush()};scheduleFlush(){this.flushScheduled||this.disposed||(this.flushScheduled=!0,Promise.resolve().then(()=>{if(this.flushScheduled=!1,this.disposed)return;const t=()=>{this.flushRender(),this.flushEffects(),this.flushRender()};this.options.runWithExecutionAttribution?this.options.runWithExecutionAttribution(t):t()}))}flushRender(){for(;this.dirty&&!this.disposed&&!this.rendering;)this.dirty=!1,this.render()}flushEffects(){try{for(const t of this.runtime.flush()??[])this.options.onError(t)}catch(t){this.options.onError(t)}}render(){this.rendering=!0;try{const{encoded:t,errors:d}=this.runtime.render(this.createRenderInput());return d?.length||!t?(this.options.onError(d?.[0]??new Error("DIL render failed")),!1):(this.options.onOperations({...t,types:[...this.types]}),this.runtime.commitStateSnapshot(),this.scheduleFlush(),!0)}catch(t){return this.options.onError(t),!1}finally{this.rendering=!1}}createRenderInput(){let t=this.appDataProxies.get(this.data.appData);return t||(t=new Proxy(this.data.appData,{get:(d,f,y)=>f===jt?{dil:this.wrapDilRuntime,globals:this.globals,jsx:this.wrapJsxRuntime}:f==="__dilHost"?{isMobile:this.data.isMobile===!0}:Reflect.get(d,f,y)}),this.appDataProxies.set(this.data.appData,t)),{activeBreakpoints:this.data.activeBreakpoints,animated:!1,appData:t,constants:this.data.constants,contextId:0,kind:3,stateSnapshot:void 0,theme:this.data.theme}}wrapDilRuntime=t=>{const d=this.wrappedDil.get(t);if(d)return d;const f=ut.hardenApiFacade({...t,render:y=>{if(!tt.isDILRuntimeElement(y)||typeof y.type!="function"||typeof y.props?.key!="string"||!/^body:\\d+$/.test(y.props.key))return t.render(y);const l={...y.props};return delete l.key,t.render(tt.createDilElement(y.type,l,y.children))}});return this.wrappedDil.set(t,f),f};wrapJsxRuntime=t=>{const d=this.wrappedJsx.get(t);if(d)return d;const f=ut.hardenApiFacade({Fragment:t.Fragment,jsx:(y,l,...r)=>{if(typeof y!="string"||!l)return t.jsx(y,l,...r);const s={...l};for(const[i,u]of Object.entries(l)){tt.isDILRuntimeElement(u)&&!this.renderedPropNames.includes(i)&&this.renderedPropNames.push(i);const n=Mt.getDILHtmlViewMessengerHost(u);n&&(s[i]={__dilMessenger:"html-view",channelId:n.channelId,command:n.command,commands:{},onEvent:n.event})}return t.jsx(y,{...s,[Zt]:Object.keys(l).filter(i=>i!=="key")},...r)}});return this.wrappedJsx.set(t,f),f};prepareSource(t){const d=Object.entries(this.options.dilComponents??{}).map(([r,s])=>{if(Ut(r),!/^[A-Z]/.test(r))throw new Error(\`DIL component name "\${r}" must start with uppercase\`);if(r==="DIL"||r==="__dil")throw new Error(\`DIL component name "\${r}" is reserved\`);if(Object.hasOwn(this.globals,r))throw new Error(\`DIL component name "\${r}" conflicts with a global\`);return\`const \${r}=(\${s});\`}),f=\`DIL.useAppData(data=>data[\${JSON.stringify(jt)}])\`,y=["DIL","__dil",...Object.keys(this.globals)],l=[\`\${f}.dil(DIL)\`,\`\${f}.jsx(__dil)\`,...Object.keys(this.globals).map(r=>\`\${f}.globals[\${JSON.stringify(r)}]\`)];return\`((\${y.join(",")})=>{"use strict";\${d.join("")}
+\${t}
+})(\${l.join(",")});\`}restoreSource(){this.lastSource!==void 0&&this.runtime.updateSource(this.lastSource)}}function St(h){return{activeBreakpoints:[],appData:{},constants:{},isMobile:!1,theme:"light",...h}}function Ut(h){if(!/^[A-Za-z_$][0-9A-Za-z_$]*$/.test(h))throw new Error(\`Invalid DIL global name "\${h}"\`)}class ee{disposed=!1;commandIndex=0;eventListeners=new Map;handlers;pendingCommands=new Map;port;constructor({handlers:t,port:d}){this.handlers=t,this.port=d,this.port.addEventListener("message",this.handleMessage),this.port.start()}commands=new Proxy(Object.create(null),{get:(t,d)=>{if(!(typeof d!="string"||d==="then"))return f=>this.sendCommand(d,f)}});emit(t,d){this.send({__oaiDilMessage:!0,data:d,event:String(t),kind:"event"})}on(t,d){const f=String(t),y=this.eventListeners.get(f)??new Set;return y.add(d),this.eventListeners.set(f,y),()=>{y.delete(d),y.size===0&&this.eventListeners.delete(f)}}dispose(t="DIL frame messenger disposed"){if(this.disposed)return;this.disposed=!0,this.port.removeEventListener("message",this.handleMessage),this.port.close();const d=new Error(t);for(const f of this.pendingCommands.values())f.reject(d);this.pendingCommands.clear(),this.eventListeners.clear()}sendCommand(t,d){if(this.disposed)return Promise.reject(new Error("DIL frame messenger is disposed"));const f=\`command_\${this.commandIndex}\`;return this.commandIndex+=1,new Promise((y,l)=>{this.pendingCommands.set(f,{reject:l,resolve:y});try{this.send({__oaiDilMessage:!0,command:t,data:d,id:f,kind:"command"})}catch(r){this.pendingCommands.delete(f),l(r)}})}send(t){if(this.disposed)throw new Error("DIL frame messenger is disposed");this.port.postMessage(t)}handleMessage=t=>{if(!re(t.data))return;const d=t.data;switch(d.kind){case"ack":break;case"command":this.handleCommand(d);break;case"event":for(const f of this.eventListeners.get(d.event)??[])f(d.data);break;case"response":{const f=this.pendingCommands.get(d.id);if(!f)return;this.pendingCommands.delete(d.id),d.error?f.reject(ne(d.error)):f.resolve(d.result);break}}};async handleCommand(t){const d=Object.hasOwn(this.handlers,t.command)?this.handlers[t.command]:void 0;if(!d){this.sendResponseError(t.id,new Error(\`Unknown DIL frame command "\${t.command}"\`));return}try{const f=d(t.data);t.acknowledge&&!this.disposed&&this.send({__oaiDilMessage:!0,id:t.id,kind:"ack"});const y=await f;if(this.disposed)return;try{this.send({__oaiDilMessage:!0,id:t.id,kind:"response",result:y})}catch(l){this.sendResponseError(t.id,l)}}catch(f){this.disposed||this.sendResponseError(t.id,f)}}sendResponseError(t,d){this.send({__oaiDilMessage:!0,error:ot(d),id:t,kind:"response"})}}function ot(h){return h instanceof Error?{message:h.message,name:h.name}:{message:String(h),name:"Error"}}function ne(h){const t=new Error(h.message);return Object.defineProperty(t,"name",{configurable:!0,enumerable:!0,value:h.name,writable:!0}),h.stack&&(t.stack=h.stack),t}function re(h){if(h==null||typeof h!="object"||h.__oaiDilMessage!==!0)return!1;const t=h.kind;return t==="ack"||t==="command"||t==="event"||t==="response"}function At(h,t){const d=f=>oe(f)?(...y)=>t(f.__oaiDilGlobalFunction,y):Array.isArray(f)?f.map(d):f!=null&&typeof f=="object"?Object.fromEntries(Object.entries(f).map(([y,l])=>[y,d(l)])):f;return d(h)}function oe(h){return h!=null&&typeof h=="object"&&!Array.isArray(h)&&typeof h.__oaiDilGlobalFunction=="string"}const it=8;function ie(h){return h!=null&&typeof h=="object"&&h.__oaiDilFrame===!0&&h.kind==="createRunner"&&h.protocolVersion===it&&typeof h.compiledDil=="string"&&typeof h.runnerId=="string"}function se(h){return h!=null&&typeof h=="object"&&h.__oaiDilFrame===!0&&h.kind==="disposeRunner"&&h.protocolVersion===it&&typeof h.runnerId=="string"}function ae(h){return h!=null&&typeof h=="object"&&h.__oaiDilWorker===!0&&h.kind==="initializeControl"&&h.protocolVersion===it}const le=globalThis.addEventListener.bind(globalThis),ue=globalThis.removeEventListener.bind(globalThis),L=new Map;let j;le("message",zt);function zt(h){if(j||h.ports.length!==1||!ae(h.data))return;ue("message",zt);const t=h.ports[0];try{de(),t.addEventListener("message",ce),t.start(),j=t}catch(d){throw t.close(),d}}function de(){const h=()=>{throw new Error("DIL policy blocked dynamic code evaluation")},t=[Function.prototype,Object.getPrototypeOf(async function(){}),Object.getPrototypeOf(function*(){}),Object.getPrototypeOf(async function*(){})];for(const y of t)Object.defineProperty(y,"constructor",{configurable:!1,enumerable:!1,value:h,writable:!1});globalThis.eval=h;const d=Object.getPrototypeOf(globalThis),f=EventTarget.prototype;for(let y=d;y!==null&&y!==f;y=Object.getPrototypeOf(y))for(const l of Reflect.ownKeys(y)){if(l==="constructor"||Reflect.deleteProperty(y,l))continue;const r=Reflect.get(y,l,globalThis);if(typeof r=="function"||typeof r=="object"&&r!==null)throw new Error(\`Failed to remove browser capability "\${String(l)}"\`)}for(const y of Reflect.ownKeys(f))y!=="constructor"&&Object.defineProperty(d,y,{configurable:!0,value:void 0});Yt.hardenSandboxGlobal(globalThis)}function ce(h){if(me(h.data)){j?.postMessage({__oaiDilWorker:!0,kind:"healthy",requestId:h.data.requestId});return}if(se(h.data)){const f=L.get(h.data.runnerId);f&&(L.delete(h.data.runnerId),S(h.data.runnerId,f.dispose));return}if(h.ports.length!==1||!ie(h.data))return;const t=h.data,d=L.get(t.runnerId);d&&(L.delete(t.runnerId),S(t.runnerId,d.dispose)),S(t.runnerId,()=>{pe(t,h.ports[0])})}function pe(h,t){const d=new Map;let f,y=null,l=0;const s=Object.fromEntries(Object.entries({registerMessengerTransport:({channelId:n})=>{d.get(n)?.();const a={command:(p,v)=>i.commands.invokeMessengerCommand({channelId:n,data:v,type:p}),event:(p,v)=>{i.emit("messengerEvent",{channelId:n,data:v,type:p})}};d.set(n,u().registerDilMessengerTransport(n,a))},setCompiledDil:({compiledDil:n})=>{u().updateSource(n)},setData:({data:n})=>{u().setData(n)},setStateSnapshot:({snapshot:n})=>{u().setStateSnapshot(n)},trigger:n=>{const a=f;f=n.interactionCapability;try{const p=Number(n.id.slice(9));if(!Number.isSafeInteger(p))throw new Error(\`Unknown DIL callback "\${n.id}"\`);return u().invokeFunction(p,n.args,n.propagateErrors)}finally{f=a}},unregisterMessengerTransport:({channelId:n})=>{d.get(n)?.(),d.delete(n)}}).map(([n,a])=>[n,p=>S(h.runnerId,()=>a(p))])),i=new ee({handlers:s,port:t});L.set(h.runnerId,{dispose(){for(const n of d.values())n();d.clear(),y?.dispose(),i.dispose()}}),i.emit("lifecycle",{kind:"worker_ready"});try{const n=At(h.globals,(v,m)=>i.commands.invokeGlobal({args:m,id:v,...f==null?{}:{interactionCapability:f}})),a=h.statePersistence,p=a?At({persistState:a.persistState},(v,m)=>i.commands.invokeGlobal({args:m,id:v})).persistState:void 0;if(a&&typeof p!="function")throw new Error("DIL state persistence is not available");y=new te(h.compiledDil,{data:h.data,dilComponents:h.dilComponents,globals:n,onError:v=>{l+=1,i.emit("snapshot",{error:ot(v),version:l})},onOperations:v=>{l+=1,i.emit("snapshot",{error:null,operations:v,version:l})},runWithExecutionAttribution:v=>S(h.runnerId,v),...a&&typeof p=="function"?{onStateChange:v=>{Promise.resolve(p(v)).catch(()=>{})},stateSnapshot:a.snapshot}:{}})}catch(n){i.emit("lifecycle",{kind:"failure",stage:"runtime_error"}),i.emit("snapshot",{error:ot(n),version:l+1})}function u(){if(!y)throw new Error("DIL frame runner is not initialized");return y}}function S(h,t){j?.postMessage({__oaiDilWorker:!0,kind:"executionStarted",runnerId:h});try{return t()}finally{j?.postMessage({__oaiDilWorker:!0,kind:"executionFinished",runnerId:h})}}function me(h){return h!=null&&typeof h=="object"&&h.__oaiDilWorker===!0&&h.kind==="healthCheck"&&typeof h.requestId=="string"}})();
+`,m=typeof self<"u"&&self.Blob&&new Blob(["(self.URL || self.webkitURL).revokeObjectURL(self.location.href);",h],{type:"text/javascript;charset=utf-8"});function x(o){let e;try{if(e=m&&(self.URL||self.webkitURL).createObjectURL(m),!e)throw"";const t=new Worker(e,{name:o?.name});return t.addEventListener("error",()=>{(self.URL||self.webkitURL).revokeObjectURL(e)}),t}catch{return new Worker("data:text/javascript;charset=utf-8,"+encodeURIComponent(h),{name:o?.name})}}function R(){return new x}const u=new v({createWorker:R});window.addEventListener("message",k);window.addEventListener("pagehide",()=>u.dispose());const b={__oaiDilFrame:!0,kind:"ready",protocolVersion:l};window.parent.postMessage(b,"*");function k(o){if(o.source===window.parent){if(_(o.data)){if(o.ports.length!==1)return;u.createRunner(o.data,o.ports[0]);return}f(o.data)&&u.disposeRunner(o.data.runnerId)}}
