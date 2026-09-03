@@ -570,56 +570,64 @@
 
             <div class="col-6 col-md-3">
 
-                <div class="category-box">
+                     <a class="category-box d-block text-decoration-none text-reset"
+                         href="#products"
+                         data-category="flours-spices">
 
                     <i class="bi bi-box-seam"></i>
 
-                    <h5>Thalipeeth Aata</h5>
+                    <h5>Flours &amp; Spices</h5>
 
                     <p>Bhajani</p>
-                </div>
+                </a>
 
             </div>
 
             <div class="col-6 col-md-3">
 
-                <div class="category-box">
+                     <a class="category-box d-block text-decoration-none text-reset"
+                         href="#products"
+                         data-category="dry-fruits">
 
                     <i class="bi bi-cup-hot"></i>
 
-                    <h5>Dryfruits</h5>
+                    <h5>Dry Fruits</h5>
 
                     <p>Mix Tukda dryfruits</p>
 
-                </div>
+                </a>
 
             </div>
 
             <div class="col-6 col-md-3">
 
-                <div class="category-box">
+                     <a class="category-box d-block text-decoration-none text-reset"
+                         href="#products"
+                         data-category="snacks">
 
                     <i class="bi bi-droplet"></i>
 
-                    <h5>Spices</h5>
+                    <h5>Snacks</h5>
 
-                    <p>Goda Masala</p>
+                    <p>Chakali</p>
 
-                </div>
+                </a>
 
             </div>
 
             <div class="col-6 col-md-3">
 
-                <div class="category-box">
+                     <a class="category-box d-block text-decoration-none text-reset"
+                         href="#products"
+                         data-category="sweeteners">
 
                     <i class="bi bi-egg-fried"></i>
 
-                    <h5>Cookware</h5>
+                    <h5>Sweeteners</h5>
 
-                    <p>Cooking products</p>
+                    <p>Jaggery</p>
 
-                </div>
+                </a>
 
             </div>
 
@@ -1293,10 +1301,22 @@
     });
 
     const categoryFilter = document.getElementById("categoryFilter");
-    categoryFilter.addEventListener("change", function () {
+
+    function applyCategoryFilter(category) {
+        categoryFilter.value = category;
         document.querySelectorAll(".product-card").forEach(function (card) {
-            const matchesCategory = categoryFilter.value === "all" || card.dataset.category === categoryFilter.value;
+            const matchesCategory = category === "all" || card.dataset.category === category;
             card.closest("[class*='col-']").style.display = matchesCategory ? "flex" : "none";
+        });
+    }
+
+    categoryFilter.addEventListener("change", function () {
+        applyCategoryFilter(categoryFilter.value);
+    });
+
+    document.querySelectorAll(".category-box[data-category]").forEach(function (categoryBox) {
+        categoryBox.addEventListener("click", function () {
+            applyCategoryFilter(categoryBox.dataset.category);
         });
     });
 
